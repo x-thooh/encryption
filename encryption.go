@@ -52,11 +52,11 @@ func Encrypt(opts ...Option) (e standard.IEncrypt) {
 	case standard.TypeAES:
 		switch o.m {
 		case standard.ModelCBC:
-			e = aes.NewCBC(o.key, o.iv, o.aesOptions...)
+			e = aes.NewCBC(o.key, o.iv, append(o.aesOptions, aes.WithPadding(Padding(o.p)))...)
 		case standard.ModelCFB:
 			e = aes.NewCFB(o.key, o.iv, o.aesOptions...)
 		case standard.ModelECB:
-			e = aes.NewECB(o.key, o.aesOptions...)
+			e = aes.NewECB(o.key, append(o.aesOptions, aes.WithPadding(Padding(o.p)))...)
 		default:
 			panic("encrypt not support")
 		}
@@ -74,11 +74,11 @@ func Encrypt(opts ...Option) (e standard.IEncrypt) {
 	case standard.TypeSM4:
 		switch o.m {
 		case standard.ModelCBC:
-			e = sm4.NewCBC(o.key, o.iv, o.sm4Options...)
+			e = sm4.NewCBC(o.key, o.iv, append(o.sm4Options, sm4.WithPadding(Padding(o.p)))...)
 		case standard.ModelCFB:
 			e = sm4.NewCFB(o.key, o.iv, o.sm4Options...)
 		case standard.ModelECB:
-			e = sm4.NewECB(o.key, o.sm4Options...)
+			e = sm4.NewECB(o.key, append(o.sm4Options, sm4.WithPadding(Padding(o.p)))...)
 		default:
 			panic("encrypt not support")
 		}
@@ -100,9 +100,9 @@ func Sign(opts ...Option) (s standard.ISign) {
 	case standard.TypeRSA:
 		switch o.p {
 		case standard.PaddingTypePKCS:
-			s = rsa.NewPKCS(o.pubKey, o.priKey)
+			s = rsa.NewPKCS(o.pubKey, o.priKey, o.rsaOptions...)
 		case standard.PaddingTypePSS:
-			s = rsa.NewPSS(o.pubKey, o.priKey)
+			s = rsa.NewPSS(o.pubKey, o.priKey, o.rsaOptions...)
 		default:
 			panic("sign not support")
 		}
