@@ -3,10 +3,10 @@ package aes
 import (
 	"crypto/aes"
 	"crypto/cipher"
-	"encoding/base64"
 	"errors"
 	"fmt"
 
+	"github.com/x-thooh/encryption/pkg/format"
 	"github.com/x-thooh/encryption/pkg/padding"
 	"github.com/x-thooh/encryption/standard"
 )
@@ -24,6 +24,7 @@ func NewCBC(
 ) standard.IEncrypt {
 	o := &options{
 		padding: padding.NewPKCS7(),
+		format:  format.NewBase64(),
 	}
 	for _, opt := range opts {
 		opt(o)
@@ -56,13 +57,13 @@ func (c *cbc) Encrypt(origData []byte) (string, error) {
 	blockMode.CryptBlocks(encrypted, origData)
 
 	// Base64加密
-	return base64.StdEncoding.EncodeToString(encrypted), nil
+	return c.o.format.EncodeToString(encrypted), nil
 }
 
 // Decrypt 解密
 func (c *cbc) Decrypt(ciphertext string) ([]byte, error) {
 	// Base64解码
-	encrypted, err := base64.StdEncoding.DecodeString(ciphertext)
+	encrypted, err := c.o.format.DecodeString(ciphertext)
 	if err != nil {
 		return nil, err
 	}

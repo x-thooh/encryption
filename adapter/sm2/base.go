@@ -2,6 +2,7 @@ package sm2
 
 import (
 	"github.com/x-thooh/encryption/adapter/sm2/key"
+	"github.com/x-thooh/encryption/standard"
 )
 
 type (
@@ -27,6 +28,8 @@ type options struct {
 
 	marshalMode   PointMarshalMode
 	splicingOrder CiphertextSplicingOrder
+
+	format standard.IFormat
 }
 
 type Option func(*options)
@@ -46,5 +49,12 @@ func WithSplicingOrder(splicingOrder CiphertextSplicingOrder) Option {
 func WithKeyOptions(keyOptions ...key.Option) Option {
 	return func(o *options) {
 		o.keyOptions = keyOptions
+	}
+
+}
+
+func WithFormat(format standard.IFormat) Option {
+	return func(o *options) {
+		o.format = format
 	}
 }

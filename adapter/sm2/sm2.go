@@ -3,12 +3,12 @@ package sm2
 import (
 	"crypto/rand"
 	"encoding/asn1"
-	"encoding/base64"
 	"fmt"
 	"math/big"
 
 	gsm2 "github.com/emmansun/gmsm/sm2"
 	"github.com/x-thooh/encryption/adapter/sm2/key"
+	"github.com/x-thooh/encryption/pkg/format"
 	"github.com/x-thooh/encryption/standard"
 )
 
@@ -32,6 +32,7 @@ func NewSM2(
 	o := &options{
 		marshalMode:   MarshalUncompressed,
 		splicingOrder: C1C3C2,
+		format:        format.NewBase64(),
 	}
 	for _, opt := range opts {
 		opt(o)
@@ -53,7 +54,7 @@ func (s *sm2) Encrypt(origData []byte) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return base64.StdEncoding.EncodeToString(encrypt), nil
+	return s.o.format.EncodeToString(encrypt), nil
 }
 
 func (s *sm2) Decrypt(ciphertext string) ([]byte, error) {
@@ -61,7 +62,7 @@ func (s *sm2) Decrypt(ciphertext string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	encrypt, err := base64.StdEncoding.DecodeString(ciphertext)
+	encrypt, err := s.o.format.DecodeString(ciphertext)
 	if err != nil {
 		return nil, err
 	}
@@ -83,7 +84,7 @@ func (s *sm2) Sign(plainText []byte) (string, error) {
 		return "", err
 	}
 
-	return base64.StdEncoding.EncodeToString(sigDER), nil
+	return s.o.format.EncodeToString(sigDER), nil
 }
 
 func (s *sm2) Verify(plainText []byte, signatureB64 string) error {
@@ -91,7 +92,7 @@ func (s *sm2) Verify(plainText []byte, signatureB64 string) error {
 	if err != nil {
 		return err
 	}
-	base64Sig, err := base64.StdEncoding.DecodeString(signatureB64)
+	base64Sig, err := s.o.format.DecodeString(signatureB64)
 	if err != nil {
 		return err
 	}

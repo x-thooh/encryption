@@ -6,9 +6,9 @@ import (
 	"crypto/rand"
 	crsa "crypto/rsa"
 	"crypto/sha256"
-	"encoding/base64"
 
 	"github.com/x-thooh/encryption/adapter/rsa/key"
+	"github.com/x-thooh/encryption/pkg/format"
 	"github.com/x-thooh/encryption/standard"
 )
 
@@ -25,7 +25,9 @@ func NewPKCS(
 	priKeyPEM string,
 	opts ...Option,
 ) standard.IEncryptSign {
-	o := &options{}
+	o := &options{
+		format: format.NewBase64(),
+	}
 	for _, opt := range opts {
 		opt(o)
 	}
@@ -59,7 +61,7 @@ func (p *pcks) Encrypt(plainText []byte) (string, error) {
 		buffer.Write(block)
 	}
 
-	return base64.StdEncoding.EncodeToString(buffer.Bytes()), nil
+	return p.o.format.EncodeToString(buffer.Bytes()), nil
 }
 
 // Decrypt 解密
@@ -70,7 +72,7 @@ func (p *pcks) Decrypt(cipherB64 string) ([]byte, error) {
 	}
 
 	// 解密
-	cipherBytes, err := base64.StdEncoding.DecodeString(cipherB64)
+	cipherBytes, err := p.o.format.DecodeString(cipherB64)
 	if err != nil {
 		return nil, err
 	}
@@ -106,7 +108,7 @@ func (p *pcks) Sign(plainText []byte) (string, error) {
 		return "", err
 	}
 
-	return base64.StdEncoding.EncodeToString(signature), nil
+	return p.o.format.EncodeToString(signature), nil
 }
 
 // Verify 验签
@@ -115,7 +117,7 @@ func (p *pcks) Verify(plainText []byte, signatureB64 string) error {
 	if err != nil {
 		return err
 	}
-	signature, err := base64.StdEncoding.DecodeString(signatureB64)
+	signature, err := p.o.format.DecodeString(signatureB64)
 	if err != nil {
 		return err
 	}

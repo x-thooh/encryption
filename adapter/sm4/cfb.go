@@ -2,9 +2,9 @@ package sm4
 
 import (
 	"crypto/cipher"
-	"encoding/base64"
 
 	"github.com/emmansun/gmsm/sm4"
+	"github.com/x-thooh/encryption/pkg/format"
 	"github.com/x-thooh/encryption/standard"
 )
 
@@ -20,7 +20,9 @@ func NewCFB(
 	iv []byte,
 	opts ...Option,
 ) standard.IEncrypt {
-	o := &options{}
+	o := &options{
+		format: format.NewBase64(),
+	}
 	for _, opt := range opts {
 		opt(o)
 	}
@@ -41,12 +43,12 @@ func (c *cfb) Encrypt(origData []byte) (string, error) {
 	stream := cipher.NewCFBEncrypter(block, c.iv)
 	stream.XORKeyStream(ciphertext, origData)
 
-	return base64.StdEncoding.EncodeToString(ciphertext), nil
+	return c.o.format.EncodeToString(ciphertext), nil
 }
 
 func (c *cfb) Decrypt(ciphertext string) ([]byte, error) {
 	// Base64解码
-	encrypted, err := base64.StdEncoding.DecodeString(ciphertext)
+	encrypted, err := c.o.format.DecodeString(ciphertext)
 	if err != nil {
 		return nil, err
 	}

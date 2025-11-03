@@ -5,13 +5,13 @@ import (
 	crsa "crypto/rsa"
 	"crypto/sha1"
 	"crypto/sha256"
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"hash"
 	"math/big"
 
 	"github.com/x-thooh/encryption/adapter/rsa/key"
+	"github.com/x-thooh/encryption/pkg/format"
 	"github.com/x-thooh/encryption/standard"
 )
 
@@ -33,6 +33,7 @@ func NewOAEP(
 ) standard.IEncrypt {
 	o := &options{
 		digestMgf1: Sha256Sha256,
+		format:     format.NewBase64(),
 	}
 	for _, opt := range opts {
 		opt(o)
@@ -59,7 +60,7 @@ func (r *oaep) Encrypt(plainBytes []byte) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		return base64.StdEncoding.EncodeToString(cipherBytes), nil
+		return r.o.format.EncodeToString(cipherBytes), nil
 	case Sha256Sha256:
 		h = sha256.New()
 	case Sha1Sha1:
@@ -71,7 +72,7 @@ func (r *oaep) Encrypt(plainBytes []byte) (string, error) {
 		return "", err
 	}
 
-	return base64.StdEncoding.EncodeToString(ciphertext), nil
+	return r.o.format.EncodeToString(ciphertext), nil
 }
 
 // Decrypt 解密
@@ -82,7 +83,7 @@ func (r *oaep) Decrypt(cipherText string) ([]byte, error) {
 	}
 
 	// 解密
-	cipherBytes, err := base64.StdEncoding.DecodeString(cipherText)
+	cipherBytes, err := r.o.format.DecodeString(cipherText)
 	if err != nil {
 		return nil, err
 	}

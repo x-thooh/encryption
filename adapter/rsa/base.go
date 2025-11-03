@@ -2,6 +2,7 @@ package rsa
 
 import (
 	"github.com/x-thooh/encryption/adapter/rsa/key"
+	"github.com/x-thooh/encryption/standard"
 )
 
 type DigestMGF1Type string
@@ -16,6 +17,8 @@ type options struct {
 	digestMgf1 DigestMGF1Type // SHA-256/SHA-256
 
 	keyOptions []key.Option
+
+	format standard.IFormat
 }
 
 type Option func(*options)
@@ -29,5 +32,11 @@ func WithDigestMGF1(digestMgf1 DigestMGF1Type) Option {
 func WithKeyOptions(keyOptions ...key.Option) Option {
 	return func(o *options) {
 		o.keyOptions = append(o.keyOptions, keyOptions...)
+	}
+}
+
+func WithFormat(format standard.IFormat) Option {
+	return func(o *options) {
+		o.format = format
 	}
 }

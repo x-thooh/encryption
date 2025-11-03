@@ -11,6 +11,11 @@ type IPadding interface {
 	UnPadding(data []byte, blockSize int) ([]byte, error)
 }
 
+type IFormat interface {
+	DecodeString(s string) ([]byte, error)
+	EncodeToString(src []byte) string
+}
+
 type (
 	Type        string
 	Model       string
