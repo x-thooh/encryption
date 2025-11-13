@@ -1,7 +1,10 @@
 package sm2
 
 import (
+	"crypto/md5"
 	"crypto/rand"
+	"crypto/sha1"
+	"crypto/sha256"
 	"encoding/asn1"
 	"fmt"
 	"math/big"
@@ -30,9 +33,12 @@ func NewSM2(
 	opts ...Option,
 ) standard.IEncryptSign {
 	o := &options{
+
 		marshalMode:   MarshalUncompressed,
-		splicingOrder: C1C3C2,
-		format:        format.NewBase64(),
+		splicingOrder: C1C2C3,
+		hashType:      SM3,
+
+		format: format.NewBase64(),
 	}
 	for _, opt := range opts {
 		opt(o)
@@ -66,7 +72,8 @@ func (s *sm2) Decrypt(ciphertext string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	return gsm2.Decrypt(privateKey, encrypt)
+	// return gsm2.Decrypt(privateKey, encrypt)
+	return privateKey.Decrypt(rand.Reader, encrypt, s.getDecrypterOpts(s.o.marshalMode, s.o.splicingOrder))
 }
 
 func (s *sm2) Sign(plainText []byte) (string, error) {
@@ -74,16 +81,14 @@ func (s *sm2) Sign(plainText []byte) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	ir, is, err := gsm2.Sign(rand.Reader, &privateKey.PrivateKey, plainText)
+	ir, is, err := gsm2.Sign(rand.Reader, &privateKey.PrivateKey, s.toHash(plainText))
 	if err != nil {
 		return "", err
 	}
-
 	sigDER, err := asn1.Marshal(sm2Signature{R: ir, S: is})
 	if err != nil {
 		return "", err
 	}
-
 	return s.o.format.EncodeToString(sigDER), nil
 }
 
@@ -96,13 +101,12 @@ func (s *sm2) Verify(plainText []byte, signatureB64 string) error {
 	if err != nil {
 		return err
 	}
-
 	ss := &sm2Signature{}
 	_, err = asn1.Unmarshal(base64Sig, ss)
 	if err != nil {
 		return err
 	}
-	if gsm2.Verify(publicKey, plainText, ss.R, ss.S) {
+	if gsm2.Verify(publicKey, s.toHash(plainText), ss.R, ss.S) {
 		return nil
 	}
 	return fmt.Errorf("verification error")
@@ -110,6 +114,7 @@ func (s *sm2) Verify(plainText []byte, signatureB64 string) error {
 
 func (s *sm2) getEncrypterOpts(marshalMode PointMarshalMode, splicingOrder CiphertextSplicingOrder) *gsm2.EncrypterOpts {
 	switch marshalMode {
+	// 压缩
 	case MarshalCompressed:
 		switch splicingOrder {
 		case C1C3C2:
@@ -117,6 +122,7 @@ func (s *sm2) getEncrypterOpts(marshalMode PointMarshalMode, splicingOrder Ciphe
 		case C1C2C3:
 			return gsm2.NewPlainEncrypterOpts(0, 1)
 		}
+	// 未压缩
 	case MarshalUncompressed:
 		switch splicingOrder {
 		case C1C3C2:
@@ -124,6 +130,7 @@ func (s *sm2) getEncrypterOpts(marshalMode PointMarshalMode, splicingOrder Ciphe
 		case C1C2C3:
 			return gsm2.NewPlainEncrypterOpts(1, 1)
 		}
+	// 混合
 	case MarshalHybrid:
 		switch splicingOrder {
 		case C1C3C2:
@@ -133,4 +140,34 @@ func (s *sm2) getEncrypterOpts(marshalMode PointMarshalMode, splicingOrder Ciphe
 		}
 	}
 	return gsm2.NewPlainEncrypterOpts(0, 0)
+}
+
+func (s *sm2) getDecrypterOpts(marshalMode PointMarshalMode, splicingOrder CiphertextSplicingOrder) *gsm2.DecrypterOpts {
+	switch splicingOrder {
+	case C1C3C2:
+		return gsm2.NewPlainDecrypterOpts(0)
+	case C1C2C3:
+		return gsm2.NewPlainDecrypterOpts(1)
+	default:
+		return gsm2.NewPlainDecrypterOpts(1)
+	}
+}
+
+func (s *sm2) toHash(data []byte) []byte {
+	switch s.o.hashType {
+	case MD5:
+		return md5.New().Sum(data)
+	case SHA1:
+		return sha1.New().Sum(data)
+	case SHA256:
+		return sha256.New().Sum(data)
+	case SHA384:
+		return sha256.New().Sum(data)
+	case SHA512:
+		return sha256.New().Sum(data)
+	case SM3:
+		fallthrough
+	default:
+		return data
+	}
 }
