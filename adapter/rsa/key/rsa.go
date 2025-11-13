@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/pem"
 	"fmt"
+	"strings"
 )
 
 type Rsa struct {
@@ -16,9 +17,7 @@ type Rsa struct {
 
 func NewRSA(opts ...Option) *Rsa {
 	o := &options{
-		size:   Size2048,
-		_type:  PEM,
-		format: FormatPKCS8,
+		size: Size2048,
 	}
 	for _, opt := range opts {
 		opt(o)
@@ -36,21 +35,40 @@ func (x *Rsa) Generate() (string, string, error) {
 	pub := &pri.PublicKey
 
 	var (
-		priStr string
-		pubStr string
+		priStr, pubStr string
+		priBs, pubBs   []byte
 	)
-	switch x.o.format {
-	case FormatPKCS8:
-		priBs, err := x509.MarshalPKCS8PrivateKey(pri)
+	if x.o.isPcks1 {
+		priBs = x509.MarshalPKCS1PrivateKey(pri)
+		pubBs = x509.MarshalPKCS1PublicKey(pub)
+	} else {
+		priBs, err = x509.MarshalPKCS8PrivateKey(pri)
 		if err != nil {
 			return "", "", err
 		}
-		pubBs, err := x509.MarshalPKIXPublicKey(pub)
+		pubBs, err = x509.MarshalPKIXPublicKey(pub)
 		if err != nil {
 			return "", "", err
 		}
-		switch x.o._type {
-		case PEM:
+	}
+	switch x.o._type {
+	case Base64:
+		priStr = base64.StdEncoding.EncodeToString(priBs)
+		pubStr = base64.StdEncoding.EncodeToString(pubBs)
+	case Hex:
+		priStr = hex.EncodeToString(priBs)
+		pubStr = hex.EncodeToString(pubBs)
+	default:
+		if x.o.isPcks1 {
+			priStr = string(pem.EncodeToMemory(&pem.Block{
+				Type:  "RSA PRIVATE KEY",
+				Bytes: priBs,
+			}))
+			pubStr = string(pem.EncodeToMemory(&pem.Block{
+				Type:  "RSA PUBLIC KEY",
+				Bytes: pubBs,
+			}))
+		} else {
 			priStr = string(pem.EncodeToMemory(&pem.Block{
 				Type:  "PRIVATE KEY",
 				Bytes: priBs,
@@ -59,138 +77,107 @@ func (x *Rsa) Generate() (string, string, error) {
 				Type:  "PUBLIC KEY",
 				Bytes: pubBs,
 			}))
-		case Base64:
-			priStr = base64.StdEncoding.EncodeToString(priBs)
-			pubStr = base64.StdEncoding.EncodeToString(pubBs)
-		case Hex:
-			priStr = hex.EncodeToString(priBs)
-			pubStr = hex.EncodeToString(pubBs)
-		default:
-			return "", "", fmt.Errorf("type not support:%s", x.o._type)
 		}
-	case FormatPKCS1:
-		priBs := x509.MarshalPKCS1PrivateKey(pri)
-		pubBs := x509.MarshalPKCS1PublicKey(pub)
-		priStr = string(pem.EncodeToMemory(&pem.Block{
-			Type:  "RSA PRIVATE KEY",
-			Bytes: priBs,
-		}))
-		pubStr = string(pem.EncodeToMemory(&pem.Block{
-			Type:  "RSA PUBLIC KEY",
-			Bytes: pubBs,
-		}))
-
-	default:
-		return "", "", fmt.Errorf("format not support：%s", x.o.format)
 	}
 
 	return pubStr, priStr, nil
 }
 
 func (x *Rsa) ParsePublicKey(pubKey string) (*crsa.PublicKey, error) {
-	var block *pem.Block
+	var data []byte
 	switch x.o._type {
-	case PEM:
-		block, _ = pem.Decode([]byte(pubKey))
-		if block == nil {
-			return nil, fmt.Errorf("failed to parse PEM block")
-		}
 	case Base64:
 		ret, err := base64.StdEncoding.DecodeString(pubKey)
 		if err != nil {
 			return nil, err
 		}
-		block = &pem.Block{
-			Type:  "PUBLIC KEY",
-			Bytes: ret,
-		}
+		data = ret
 	case Hex:
 		ret, err := hex.DecodeString(pubKey)
 		if err != nil {
 			return nil, err
 		}
-		block = &pem.Block{
-			Type:  "PUBLIC KEY",
-			Bytes: ret,
-		}
+		data = ret
 	default:
-		return nil, fmt.Errorf("invalid key type: %s", x.o._type)
-	}
-
-	switch block.Type {
-	// PKIX 格式（标准）
-	case "PUBLIC KEY":
-		pub, err := x509.ParsePKIXPublicKey(block.Bytes)
-		if err != nil {
-			return nil, err
+		if !strings.Contains(pubKey, "PUBLIC KEY") {
+			return nil, fmt.Errorf("invalid key type: %s", x.o._type)
 		}
-		rsaPub, ok := pub.(*crsa.PublicKey)
-		if !ok {
-			return nil, fmt.Errorf("not RSA public key")
-		}
-		return rsaPub, nil
-		// PKCS#1 格式
-	case "RSA PUBLIC KEY":
-		rsaPub, err := x509.ParsePKCS1PublicKey(block.Bytes)
-		if err != nil {
-			return nil, err
-		}
-		return rsaPub, nil
-	}
-
-	return nil, fmt.Errorf("unsupported public key type: %s", block.Type)
-}
-
-func (x *Rsa) ParsePrivateKey(priKey string) (*crsa.PrivateKey, error) {
-	var block *pem.Block
-	switch x.o._type {
-	case PEM:
-		block, _ = pem.Decode([]byte(priKey))
+		block, _ := pem.Decode([]byte(pubKey))
 		if block == nil {
 			return nil, fmt.Errorf("failed to parse PEM block")
 		}
+		data = block.Bytes
+		if strings.Contains(block.Type, "RSA") {
+			x.o.isPcks1 = true
+		}
+	}
+
+	// PKCS#1 格式
+	if x.o.isPcks1 {
+		rsaPub, err := x509.ParsePKCS1PublicKey(data)
+		if err != nil {
+			return nil, err
+		}
+		return rsaPub, nil
+	}
+	// PKIX 格式（标准）
+	pub, err := x509.ParsePKIXPublicKey(data)
+	if err != nil {
+		return nil, err
+	}
+	rsaPub, ok := pub.(*crsa.PublicKey)
+	if !ok {
+		return nil, fmt.Errorf("not RSA public key")
+	}
+	return rsaPub, nil
+}
+
+func (x *Rsa) ParsePrivateKey(priKey string) (*crsa.PrivateKey, error) {
+	var data []byte
+	switch x.o._type {
+
 	case Base64:
 		ret, err := base64.StdEncoding.DecodeString(priKey)
 		if err != nil {
 			return nil, err
 		}
-		block = &pem.Block{
-			Type:  "PRIVATE KEY",
-			Bytes: ret,
-		}
+		data = ret
 	case Hex:
 		ret, err := hex.DecodeString(priKey)
 		if err != nil {
 			return nil, err
 		}
-		block = &pem.Block{
-			Type:  "PRIVATE KEY",
-			Bytes: ret,
-		}
+		data = ret
 	default:
-		return nil, fmt.Errorf("invalid key type: %s", x.o._type)
+		if !strings.Contains(priKey, "PRIVATE KEY") {
+			return nil, fmt.Errorf("invalid key type: %s", x.o._type)
+		}
+		block, _ := pem.Decode([]byte(priKey))
+		if block == nil {
+			return nil, fmt.Errorf("failed to parse PEM block")
+		}
+		data = block.Bytes
+		if strings.Contains(block.Type, "RSA") {
+			x.o.isPcks1 = true
+		}
 	}
 
-	switch block.Type {
-	// PKIX 格式（标准）
-	case "PRIVATE KEY":
-		pub, err := x509.ParsePKCS8PrivateKey(block.Bytes)
-		if err != nil {
-			return nil, err
-		}
-		rsaPri, ok := pub.(*crsa.PrivateKey)
-		if !ok {
-			return nil, fmt.Errorf("not RSA private key")
-		}
-		return rsaPri, nil
 	// PKCS#1 格式
-	case "RSA PRIVATE KEY":
-		rsaPri, err := x509.ParsePKCS1PrivateKey(block.Bytes)
+	if x.o.isPcks1 {
+		rsaPri, err := x509.ParsePKCS1PrivateKey(data)
 		if err != nil {
 			return nil, err
 		}
 		return rsaPri, nil
 	}
-
-	return nil, fmt.Errorf("unsupported private key type: %s", block.Type)
+	// PKIX 格式（标准）
+	pub, err := x509.ParsePKCS8PrivateKey(data)
+	if err != nil {
+		return nil, err
+	}
+	rsaPri, ok := pub.(*crsa.PrivateKey)
+	if !ok {
+		return nil, fmt.Errorf("not RSA private key")
+	}
+	return rsaPri, nil
 }

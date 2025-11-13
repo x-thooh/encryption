@@ -1,21 +1,13 @@
 package key
 
 type (
-	Type   string
-	Format string
-
+	Type string
 	Size int
 )
 
 const (
-	PEM    Type = "pem"
 	Base64 Type = "base64"
 	Hex    Type = "hex"
-)
-
-const (
-	FormatPKCS1 Format = "PKCS1"
-	FormatPKCS8 Format = "PKCS8"
 )
 
 const (
@@ -27,8 +19,9 @@ const (
 type options struct {
 	size Size
 
-	_type  Type
-	format Format
+	_type Type
+
+	isPcks1 bool
 }
 
 type Option func(*options)
@@ -45,8 +38,8 @@ func WithType(_type Type) Option {
 	}
 }
 
-func WithFormat(format Format) Option {
+func WithIsPcks1() Option {
 	return func(o *options) {
-		o.format = format
+		o.isPcks1 = true
 	}
 }
