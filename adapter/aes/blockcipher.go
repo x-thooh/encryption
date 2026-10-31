@@ -1,7 +1,6 @@
 package aes
 
 import (
-	"crypto/aes"
 	"crypto/cipher"
 	"fmt"
 
@@ -11,7 +10,7 @@ import (
 // blockCipher 实现 AES 的 CBC / ECB / CFB / OFB / CTR。
 //
 // 本包与 adapter/sm4 各自持有一份完整的模式实现，两者不共享任何模式代码：
-// 块密码构造函数在这里固化为 aes.NewCipher，而不是由外部注入。
+// 块密码由 newBlock 提供（标准库 crypto/aes），不由外部注入。
 // 构造完成后字段只读，实例可并发使用。
 type blockCipher struct {
 	mode    standard.Model
@@ -32,7 +31,7 @@ func newBlockCipher(mode standard.Model, key, iv []byte, padding standard.IPaddi
 		format:  f,
 		cfbBits: cfbBits,
 	}
-	c.block, c.initErr = aes.NewCipher(append([]byte(nil), key...))
+	c.block, c.initErr = newBlock(append([]byte(nil), key...))
 	return c
 }
 

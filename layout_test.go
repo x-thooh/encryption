@@ -86,6 +86,13 @@ func TestAESAndSM4Mirror(t *testing.T) {
 	}
 }
 
+// mirrorExcluded 标记本测试刻意不比对的文件：
+//   - backend_*.go：算法原语接入层。SM4 有 gmssl CGO 后端（-tags gmssl），AES 只有标准库。
+//   - block.go：AES 的 newBlock 适配器，SM4 的对应物在 backend_*.go 里。
+func mirrorExcluded(name string) bool {
+	return strings.HasPrefix(name, "backend_") || name == "block.go"
+}
+
 // sourceFiles 返回目录下非测试 Go 文件名（已排序）。
 func sourceFiles(t *testing.T, dir string) []string {
 	t.Helper()
@@ -98,6 +105,9 @@ func sourceFiles(t *testing.T, dir string) []string {
 	for _, entry := range entries {
 		name := entry.Name()
 		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		if mirrorExcluded(name) {
 			continue
 		}
 		names = append(names, name)

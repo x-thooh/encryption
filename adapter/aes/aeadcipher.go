@@ -1,7 +1,6 @@
 package aes
 
 import (
-	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
 	"fmt"
@@ -21,7 +20,7 @@ type sealer interface {
 // aeadCipher 实现 AES 的 GCM / CCM。
 //
 // 与 blockCipher 一样，本包持有完整实现，不与其他 adapter 共享；
-// 块密码构造函数固化为 aes.NewCipher。
+// 块密码由 newBlock 提供（标准库 crypto/aes）。
 type aeadCipher struct {
 	mode    standard.Model
 	nonce   []byte
@@ -39,7 +38,7 @@ func newAEADCipher(mode standard.Model, key, nonce []byte, f standard.IFormat, a
 		aad:    append([]byte(nil), aad...),
 	}
 
-	block, err := aes.NewCipher(append([]byte(nil), key...))
+	block, err := newBlock(append([]byte(nil), key...))
 	if err != nil {
 		c.initErr = fmt.Errorf("%w: %w", standard.ErrInvalidKey, err)
 		return c
