@@ -16,6 +16,8 @@ FROM ${GO_IMAGE} AS gmssl
 ARG GMSSL_TAG
 ENV DEBIAN_FRONTEND=noninteractive
 
+# 不固定 apt 包版本：Debian point release 会移动版本号，固定反而会让构建在某个时间点
+# 直接失败；要可复现请固定基础镜像 digest（ARG GO_IMAGE=...@sha256:...）。
 RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential cmake git ca-certificates \
     && rm -rf /var/lib/apt/lists/*
@@ -31,8 +33,7 @@ RUN git clone --depth 1 --branch "${GMSSL_TAG}" https://github.com/guanzhi/GmSSL
 # ---------- 2. 编译并测试本项目（-tags gmssl） ----------
 FROM gmssl AS test
 
-ENV CGO_ENABLED=1 \
-    GOFLAGS=-mod=mod
+ENV CGO_ENABLED=1
 
 WORKDIR /src/encryption
 
@@ -53,13 +54,9 @@ FROM debian:bookworm-slim AS runtime
 
 # 运行期只缺 C 运行时与 GmSSL 动态库；scratch / alpine(musl) 不可用。
 COPY --from=gmssl /usr/local/lib/libgmssl.so* /usr/local/lib/
-COPY --from=gmssl /usr/local/lib/libgmssl.a /usr/local/lib/
 
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \
     && rm -rf /var/lib/apt/lists/* \
     && ldconfig
 
-WORKDIR /app
-COPY --from=test /src/encryption /app/src
-
-CMD ["/bin/sh", "-lc", "ldconfig -p | grep gmssl && echo 'libgmssl ready'"]
+CMD ["/bin/sh", "-c", "ldd --version | head -1 && ldconfig -p | grep gmssl && echo 'libgmssl ready'"]

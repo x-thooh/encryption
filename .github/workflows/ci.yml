@@ -12,9 +12,9 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: go.mod
           cache: true
@@ -35,7 +35,7 @@ jobs:
         run: go test -race -coverprofile=coverage.out ./...
 
       - name: Upload coverage
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: coverage
           path: coverage.out
@@ -44,7 +44,9 @@ jobs:
   gmssl-cgo:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
 
       - name: Build GmSSL backend and run tests (-tags gmssl)
         run: docker build -f deploy/gmssl/Dockerfile --target test -t encryption-gmssl:ci .
@@ -56,3 +58,19 @@ jobs:
             echo "CgoFiles: $(go list -tags gmssl -f "{{.CgoFiles}}" ./adapter/sm4)"
             test "$(go list -tags gmssl -f "{{.CgoFiles}}" ./adapter/sm4)" = "[backend_gmssl.go]"
           '
+
+  cgo-disabled-guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # -tags gmssl 但未开 cgo 时必须显式失败，不允许静默回退到纯 Go。
+      - name: -tags gmssl without cgo fails loudly
+        run: CGO_ENABLED=0 go test -tags gmssl -count=1 -run NoCGO ./adapter/sm4 ./adapter/sm2
