@@ -1,6 +1,6 @@
 # CGO 国密后端（GmSSL）部署依赖
 
-`-tags gmssl` 会把 `adapter/sm4` 的分组原语从纯 Go（`github.com/emmansun/gmsm`）换成
+`-tags gmssl` 会把 SM4 的分组原语、SM2 的曲线运算从纯 Go（`github.com/emmansun/gmsm`）换成
 GmSSL C 库（`libgmssl`），走 cgo。这份文档只讲**怎么构建、运行期需要什么、怎么验证**。
 
 ## 1. 构建参数
@@ -38,7 +38,7 @@ docker run --rm gmssl-app:dev
 
 1. 从源码编译 GmSSL（默认 v3.2.0）并 `make install` 到 `/usr/local`；
 2. `go build -tags gmssl ./...` + `go vet -tags gmssl ./...` + `go test -tags gmssl ./...`；
-3. 断言 `go list -tags gmssl -f '{{.CgoFiles}}' ./adapter/sm4` 确实是 `[backend_gmssl.go]` —— 否则 `-tags gmssl` 会静默变成纯 Go，测试通过也没有意义。
+3. 断言 `go list -tags gmssl -f '{{.CgoFiles}}' ./adapter/sm4` 与 `./adapter/sm2` 都确实是 `[backend_gmssl.go]` —— 否则 `-tags gmssl` 会静默变成纯 Go，测试通过也没有意义。
 
 ## 3. 运行期依赖
 
@@ -66,6 +66,9 @@ go test -tags gmssl -run TestBackendSelection -v ./adapter/sm4
 
 # 3) 标准向量与全模式覆盖
 go test -tags gmssl -count=1 ./adapter/sm4 ./adapter/sm2
+
+# 4) 错配路径：选了 gmssl 但没开 cgo，必须显式报错而不是回退纯 Go
+CGO_ENABLED=0 go test -tags gmssl -count=1 -run NoCGO ./adapter/sm4 ./adapter/sm2
 ```
 
 ## 6. 已知限制

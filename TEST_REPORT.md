@@ -2,7 +2,7 @@
 
 本文件记录发布前的测试结论：跑了什么、结果如何、哪些地方没覆盖到。数字都可按第 8 节的命令复现。
 
-- 基线提交：`928bf20`（本轮测试补充后为 `HEAD`）
+- 基线：本报告随每次发版前更新，数字以当时的 `main` HEAD 为准（本版对应 `5849896` 之后的审查轮）
 - 环境：macOS 14 (arm64)，Go 1.23.4；CGO 分支在 Docker 内验证（`debian:bookworm-slim` + glibc，GmSSL v3.2.0）
 - 依赖：`emmansun/gmsm v0.34.1`（纯 Go）、`libgmssl`（CGO 可选后端）
 
@@ -17,8 +17,9 @@
 | CGO 分支 | `docker build -f deploy/gmssl/Dockerfile --target test .` | ✅ 构建断言 + 全量测试通过 |
 | CGO 竞争检测 | 容器内 `go test -tags gmssl -race ./...` | ✅ 通过 |
 | 模糊测试 | 5 个 target × 5s | ✅ 全部通过（无新语料失败） |
-| 覆盖率 | `go test -cover ./...` | ✅ 合计 **91.9%**，无包低于基线 |
+| 覆盖率 | `go test -cover ./...` | ✅ 合计 **92.0%**，无包低于基线 |
 | 后端互操作 | `adapter/sm2/backend_test.go` 双向固定向量 | ✅ 纯 Go ↔ GmSSL 互相能解、能验 |
+| 错配守卫 | `CGO_ENABLED=0 go test -tags gmssl -run NoCGO ./adapter/sm4 ./adapter/sm2` | ✅ 显式失败（CI job `cgo-disabled-guard`） |
 
 ## 2. 测试矩阵
 
@@ -43,12 +44,12 @@
 | `adapter/chacha20poly1305` | 97.9% | |
 | `adapter/rsa` | 85.4% | 主要缺口在 OAEP 自定义路径的极端错误分支 |
 | `adapter/rsa/key` | 88.1% | 缓存淘汰与畸形 PEM 边界 |
-| `adapter/sm2` | **95.2%** | 本轮从 87.4% 提升：新增错误路径与编码边界用例 |
+| `adapter/sm2` | **95.8%** | 本轮从 87.4% 提升：新增错误路径、编码边界与跨后端用例 |
 | `adapter/sm2/key` | 90.6% | |
 | `adapter/sm4` | 96.9% | 同 aes，剩余为不可达分支 |
 | `format` | 100.0% | |
 | `padding` | 94.6% | `Zeros` 不可逆语义导致的边界 |
-| **合计** | **91.9%** | |
+| **合计** | **92.0%** | |
 
 覆盖率不是目标本身：剩余缺口均为「正常输入不可达」的防御分支（随机数读取失败、C 库初始化失败、二次长度校验），保留它们是刻意的。
 
@@ -59,7 +60,7 @@
 | `go list -tags gmssl -f '{{.CgoFiles}}' ./adapter/sm4` | `[backend_gmssl.go]` ✅ |
 | `go list -tags gmssl -f '{{.CgoFiles}}' ./adapter/sm2` | `[backend_gmssl.go]` ✅ |
 | 运行时 `encryption.SMBackends()` | 纯 Go → `sm4=purego sm2=purego`；CGO → `sm4=gmssl sm2=gmssl` ✅ |
-| `-tags gmssl` + `CGO_ENABLED=0` | 构造即返回错误，不静默回退 ✅（负向用例 `TestBackendPlaintextLimit`/KAT 显式失败） |
+| `-tags gmssl` + `CGO_ENABLED=0` | 构造即返回错误，不静默回退 ✅（`TestNoCGOBackendReportsError` 在 sm4/sm2 各自断言 `ErrInvalidKey` / `ErrEncrypt` / `ErrDecrypt` / `ErrSign` / `ErrVerification`） |
 | GB/T 32907-2016 SM4 向量 | 两种后端都通过 ✅ |
 | SM2 双向固定向量 | 纯 Go 产出由 GmSSL 解开/验过；GmSSL 产出由纯 Go 解开/验过 ✅ |
 | 运行期依赖 | `libgmssl.so.3` + glibc；`ldd` 可见，`scratch`/`alpine` 不可用 ✅ |
@@ -114,10 +115,13 @@ go test -run '^$' -fuzz=FuzzGCMDecryptNoPanic    -fuzztime=10s ./adapter/aes
 go test -run '^$' -fuzz=FuzzCFB8RoundTrip        -fuzztime=10s ./adapter/aes
 go test -run '^$' -fuzz=FuzzParseCiphertextNoPanic -fuzztime=10s ./adapter/sm2
 
+# 错配守卫：-tags gmssl 但没开 cgo，必须报错而不是回退
+CGO_ENABLED=0 go test -tags gmssl -count=1 -run NoCGO ./adapter/sm4 ./adapter/sm2
+
 # CGO（GmSSL）后端：构建断言 + 全量测试 + race
 docker build -f deploy/gmssl/Dockerfile --target test .
 docker run --rm -v "$PWD":/src/encryption -w /src/encryption \
-  -e CGO_ENABLED=1 -e GOFLAGS=-mod=mod encryption-gmssl-test:dev \
+  -e CGO_ENABLED=1 encryption-gmssl-test:dev \
   bash -c 'go test -tags gmssl -race -count=1 ./...'
 ```
 
@@ -130,3 +134,4 @@ docker run --rm -v "$PWD":/src/encryption -w /src/encryption \
 | `adapter/sm2/backend_test.go` | 双向跨后端固定向量、后端自检、`gmssl` 明文上限 |
 | `adapter/sm2/ciphertext.go` | 顺带加固：`marshal` 先做 `IsOnCurve` 校验，避免非法点交给 `elliptic.Marshal` 触发 panic；删除两处不可达的 nil 检查 |
 | `smbackend_test.go` | 门面后端视图与 adapter 一致、常量覆盖、`Check` 四种结论、`String`/`Ready` |
+| `adapter/{sm4,sm2}/nocgo_test.go` | `-tags gmssl` + `CGO_ENABLED=0` 错配必须显式报错（含哨兵断言），由 CI job `cgo-disabled-guard` 执行 |

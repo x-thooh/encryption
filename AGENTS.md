@@ -33,6 +33,7 @@ go test -cover ./...
 CGO_ENABLED=1 go build -tags gmssl ./...
 CGO_ENABLED=1 go test -tags gmssl ./...
 docker build -f deploy/gmssl/Dockerfile --target test .   # 无本地 GmSSL 时的等价验证
+CGO_ENABLED=0 go test -tags gmssl -run NoCGO ./adapter/sm4 ./adapter/sm2  # 错配必须显式失败
 ```
 
 覆盖率基线（2026-10 修复后，仅供参考，不要降低）：
@@ -44,7 +45,7 @@ docker build -f deploy/gmssl/Dockerfile --target test .   # 无本地 GmSSL 时�
 | `adapter/chacha20poly1305` | ~98% |
 | `adapter/rsa` | ~85% |
 | `adapter/rsa/key` | ~88% |
-| `adapter/sm2` | ~86% |
+| `adapter/sm2` | ~96% |
 | `adapter/sm2/key` | ~90% |
 | `adapter/sm4` | ~97% |
 | `format` | 100% |
@@ -215,7 +216,7 @@ adapter/aes/
 9. 流式改动必须覆盖：`Stream` 配置错误返回 sentinel、固定 IV 只能加密一次（`ErrStreamReused`）、分帧 AEAD 的截断/重排/重复/跨流拼接拒绝、空输入往返。
 10. 改动 `adapter/aes` 或 `adapter/sm4` 任一份模式实现（CBC/ECB/CFB/OFB/CTR/GCM/CCM）后，必须同步另一份并运行 `go test -run TestAESAndSM4Mirror .` 与 `go test -run TestAdapterIndependence .`；`TestAESAndSM4Mirror` 会把两份源码归一化后逐文件比对，只改一份必定失败。
 11. 新增 adapter 时在 `layout_test.go` 的 `TestAdapterIndependence` 约束下走：只能 import `standard` / `padding` / `format` / 标准库 / 第三方库，不得 import 其他 adapter。
-12. 改动 SM4 / SM2 原语 seam（`adapter/{sm4,sm2}/backend_*.go`、`newBlock`、`sm2.Backend()`）必须两种后端都验证：`go test ./...` 与 `go test -tags gmssl ./...`；本机没有 libgmssl 时用 `docker build -f deploy/gmssl/Dockerfile --target test .`，并确认 `go list -tags gmssl -f '{{.CgoFiles}}' ./adapter/sm4` 为 `[backend_gmssl.go]`。
+12. 改动 SM4 / SM2 原语 seam（`adapter/{sm4,sm2}/backend_*.go`、`newBlock`、`sm2.Backend()`）必须两种后端都验证：`go test ./...` 与 `go test -tags gmssl ./...`；本机没有 libgmssl 时用 `docker build -f deploy/gmssl/Dockerfile --target test .`；错配路径用 `CGO_ENABLED=0 go test -tags gmssl -run NoCGO ./adapter/sm4 ./adapter/sm2` 验证，并确认 `go list -tags gmssl -f '{{.CgoFiles}}' ./adapter/sm4` 为 `[backend_gmssl.go]`。
 13. 修改解析/填充逻辑后，建议运行对应 fuzz target 各 5–10 秒：
 
 ```bash
