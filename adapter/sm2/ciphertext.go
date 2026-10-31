@@ -50,6 +50,7 @@ func splitCanonical(ct []byte) (*ciphertextParts, error) {
 
 	x := new(big.Int).SetBytes(ct[1 : 1+sm2ScalarSize])
 	y := new(big.Int).SetBytes(ct[1+sm2ScalarSize : canonicalC1Size])
+	//nolint:staticcheck // SM2 不在 crypto/ecdh 支持范围内，曲线点编解码沿用 elliptic（与 gmsm 一致）
 	if !sm2Curve().IsOnCurve(x, y) {
 		return nil, errors.New("sm2: C1 is not on curve")
 	}
@@ -76,6 +77,7 @@ func (p *ciphertextParts) canonical() []byte {
 func (p *ciphertextParts) marshal(mode PointMarshalMode, order CiphertextSplicingOrder) ([]byte, error) {
 	// 先自行校验曲线点：stdlib 的 elliptic.Marshal / MarshalCompressed 对非法点在
 	// 新版本里会 panic，不能把未经校验的 parts 直接交给它。
+	//nolint:staticcheck // SM2 不在 crypto/ecdh 支持范围内，曲线点编解码沿用 elliptic
 	if p.x == nil || p.y == nil || !sm2Curve().IsOnCurve(p.x, p.y) {
 		return nil, errors.New("sm2: invalid C1 point")
 	}
@@ -84,12 +86,15 @@ func (p *ciphertextParts) marshal(mode PointMarshalMode, order CiphertextSplicin
 	var c1 []byte
 	switch mode {
 	case MarshalCompressed:
+		//nolint:staticcheck // SM2 不在 crypto/ecdh 支持范围内
 		c1 = elliptic.MarshalCompressed(curve, p.x, p.y)
 	case MarshalHybrid:
+		//nolint:staticcheck // SM2 不在 crypto/ecdh 支持范围内
 		c1 = elliptic.Marshal(curve, p.x, p.y)
 		// 与 gmsm 一致：混合模式前缀 0x06 | y 的最低位。
 		c1[0] = byte(p.y.Bit(0)) | pointHybrid06
 	case MarshalUncompressed:
+		//nolint:staticcheck // SM2 不在 crypto/ecdh 支持范围内
 		c1 = elliptic.Marshal(curve, p.x, p.y)
 	default:
 		return nil, fmt.Errorf("sm2: unsupported marshal mode: %d", mode)
@@ -128,6 +133,7 @@ func parseCiphertext(order CiphertextSplicingOrder, ct []byte) (*ciphertextParts
 		if len(ct) < c1Len+sm2C3Size {
 			return nil, fmt.Errorf("sm2: ciphertext too short: %d", len(ct))
 		}
+		//nolint:staticcheck // SM2 不在 crypto/ecdh 支持范围内
 		x, y = elliptic.UnmarshalCompressed(curve, ct[:c1Len])
 	case pointUncompressed, pointHybrid06, pointHybrid07:
 		c1Len = canonicalC1Size
@@ -137,6 +143,7 @@ func parseCiphertext(order CiphertextSplicingOrder, ct []byte) (*ciphertextParts
 		normalized := make([]byte, c1Len)
 		normalized[0] = pointUncompressed
 		copy(normalized[1:], ct[1:c1Len])
+		//nolint:staticcheck // SM2 不在 crypto/ecdh 支持范围内
 		x, y = elliptic.Unmarshal(curve, normalized)
 	default:
 		return nil, fmt.Errorf("sm2: unknown C1 form: 0x%02x", ct[0])
@@ -157,14 +164,12 @@ func parseCiphertext(order CiphertextSplicingOrder, ct []byte) (*ciphertextParts
 	return parts, nil
 }
 
-// appendFixed 以大端定长 32 字节追加标量。
+// appendFixed 以大端定长 32 字节追加标量（nil 视为 0）。
 func appendFixed(dst []byte, v *big.Int) []byte {
-	var buf [sm2ScalarSize]byte
-	v.FillBytes(buf[:])
-	return append(dst, buf[:]...)
+	return append(dst, fixedScalar(v)...)
 }
 
-// fixedScalar 把标量编码成 32 字节大端，供后端使用。
+// fixedScalar 把标量编码成 32 字节大端（nil 视为 0），供后端使用。
 func fixedScalar(v *big.Int) []byte {
 	var buf [sm2ScalarSize]byte
 	if v != nil {

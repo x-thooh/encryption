@@ -64,13 +64,13 @@ const backendName = "gmssl"
 const gmsslMaxPlaintext = 255
 
 var (
-	errGMSSLKey        = errors.New("sm2: gmssl rejected the key")
-	errGMSSLSign       = errors.New("sm2: gmssl sign failed")
-	errGMSSLEncrypt    = errors.New("sm2: gmssl encrypt failed")
-	errGMSSLDecrypt    = errors.New("sm2: gmssl decrypt failed")
-	errGMSSLPlaintext  = fmt.Errorf("sm2: gmssl backend supports at most %d bytes of plaintext", gmsslMaxPlaintext)
-	errGMSSLEmptyInput = errors.New("sm2: gmssl backend does not accept empty plaintext")
-	errDigestSize      = errors.New("sm2: digest must be 32 bytes")
+	errGMSSLKey      = errors.New("sm2: gmssl rejected the key")
+	errGMSSLSign     = errors.New("sm2: gmssl sign failed")
+	errGMSSLEncrypt  = errors.New("sm2: gmssl encrypt failed")
+	errGMSSLDecrypt  = errors.New("sm2: gmssl decrypt failed")
+	errGMSSLTooLong  = fmt.Errorf("sm2: gmssl backend supports at most %d bytes of plaintext", gmsslMaxPlaintext)
+	errGMSSLEmptyMsg = errors.New("sm2: gmssl backend does not encrypt or decrypt empty payloads")
+	errDigestSize    = errors.New("sm2: digest must be 32 bytes")
 )
 
 func keyFromPrivate(priv *gsm2.PrivateKey) (*C.SM2_KEY, error) {
@@ -133,10 +133,10 @@ func verifyDigest(pub *ecdsa.PublicKey, digest []byte, r, s *big.Int) bool {
 // encryptPoint 加密并返回规范形态（未压缩 C1 || C3 || C2）。
 func encryptPoint(pub *ecdsa.PublicKey, plain []byte) ([]byte, error) {
 	if len(plain) == 0 {
-		return nil, errGMSSLEmptyInput
+		return nil, errGMSSLEmptyMsg
 	}
 	if len(plain) > gmsslMaxPlaintext {
-		return nil, errGMSSLPlaintext
+		return nil, errGMSSLTooLong
 	}
 	key, err := keyFromPublic(pub)
 	if err != nil {
@@ -168,10 +168,10 @@ func decryptPoint(priv *gsm2.PrivateKey, canonical []byte) ([]byte, error) {
 		return nil, err
 	}
 	if len(parts.c2) == 0 {
-		return nil, errGMSSLEmptyInput
+		return nil, errGMSSLEmptyMsg
 	}
 	if len(parts.c2) > gmsslMaxPlaintext {
-		return nil, errGMSSLPlaintext
+		return nil, errGMSSLTooLong
 	}
 	key, err := keyFromPrivate(priv)
 	if err != nil {

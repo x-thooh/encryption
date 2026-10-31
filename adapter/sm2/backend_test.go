@@ -3,10 +3,12 @@ package sm2
 import (
 	"bytes"
 	"encoding/hex"
+	"errors"
 	"testing"
 
 	"github.com/x-thooh/encryption/adapter/sm2/key"
 	"github.com/x-thooh/encryption/format"
+	"github.com/x-thooh/encryption/standard"
 )
 
 // 跨后端固定向量：密钥固定，密文与签名由某一套后端生成后钉死，
@@ -162,6 +164,31 @@ func TestBackendEmptyPlaintext(t *testing.T) {
 	s := fixtureAdapter(t)
 	if _, err := s.Encrypt(nil); err == nil {
 		t.Fatal("expected error for empty plaintext")
+	}
+}
+
+// TestBackendEmptyCiphertextBody 两个后端都不接受空的密文主体。
+func TestBackendEmptyCiphertextBody(t *testing.T) {
+	if Backend() == "gmssl-disabled" {
+		t.Skip("CGO 后端未启用")
+	}
+	raw, err := hex.DecodeString(fixturePureGoCT)
+	if err != nil {
+		t.Fatalf("decode fixture: %v", err)
+	}
+	parts, err := parseCiphertext(C1C3C2, raw)
+	if err != nil {
+		t.Fatalf("parse fixture: %v", err)
+	}
+	parts.c2 = nil
+	empty, err := parts.marshal(MarshalUncompressed, C1C3C2)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	s := fixtureAdapter(t)
+	if _, err := s.Decrypt(hex.EncodeToString(empty)); !errors.Is(err, standard.ErrInvalidCiphertext) {
+		t.Fatalf("got %v, want ErrInvalidCiphertext", err)
 	}
 }
 

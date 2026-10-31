@@ -23,7 +23,7 @@ func buildParts(t *testing.T) *ciphertextParts {
 
 	c3 := bytes.Repeat([]byte{0x11}, sm2C3Size)
 	c2 := bytes.Repeat([]byte{0x22}, 40)
-	return &ciphertextParts{x: priv.PublicKey.X, y: priv.PublicKey.Y, c3: c3, c2: c2}
+	return &ciphertextParts{x: priv.X, y: priv.Y, c3: c3, c2: c2}
 }
 
 // TestCiphertextCodecRoundTrip 覆盖三种点压缩模式 × 两种拼接顺序的编码往返。

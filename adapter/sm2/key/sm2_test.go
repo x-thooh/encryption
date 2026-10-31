@@ -60,6 +60,7 @@ func TestSM2ParseRawKeys(t *testing.T) {
 	}
 
 	rawPri := parsed.D.FillBytes(make([]byte, 32))
+	//nolint:staticcheck // SM2 不在 crypto/ecdh 支持范围内，测试里构造未压缩点沿用 elliptic
 	rawPub := elliptic.Marshal(parsed.Curve, parsed.X, parsed.Y)
 	_ = pemPub
 

@@ -87,6 +87,11 @@ func (s *sm2) Decrypt(ciphertext string) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", standard.ErrInvalidCiphertext, err)
 	}
+	// 空密文主体不可能由合法加密产生（两个后端都拒绝空明文），统一拒绝，
+	// 避免"纯 Go 后端静默返回空、GmSSL 后端报错"的分歧。
+	if len(parts.c2) == 0 {
+		return nil, fmt.Errorf("%w: empty ciphertext body", standard.ErrInvalidCiphertext)
+	}
 	plain, err := decryptPoint(privateKey, parts.canonical())
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", standard.ErrDecrypt, err)
