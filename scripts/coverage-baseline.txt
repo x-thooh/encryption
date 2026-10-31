@@ -1,10 +1,10 @@
-. 94
+. 100
 ./adapter/aes 100
 ./adapter/chacha20poly1305 100
-./adapter/rsa 91
-./adapter/rsa/key 91
-./adapter/sm2 98
-./adapter/sm2/key 92
+./adapter/rsa 98
+./adapter/rsa/key 100
+./adapter/sm2 100
+./adapter/sm2/key 100
 ./adapter/sm4 100
 ./format 100
 ./padding 100

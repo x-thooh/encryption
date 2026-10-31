@@ -46,6 +46,9 @@ step "coverage"
 go test -count=1 -coverprofile=coverage.out ./... >/dev/null
 go tool cover -func=coverage.out | tail -1
 
+step "coverage 例外门禁（未覆盖集合必须与 coverage-exceptions.txt 完全一致）"
+python3 scripts/check-coverage-exceptions.py coverage.out coverage-exceptions.txt
+
 if [[ -n "$COVERAGE_GATE" ]]; then
 	step "coverage gate ($COVERAGE_GATE)"
 	awk -F'[:%[:space:]]+' 'NF>3 {print $1, $NF}' "$COVERAGE_GATE" | while read -r pkg want; do
