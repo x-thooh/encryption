@@ -27,6 +27,9 @@ go get github.com/x-thooh/encryption
 | [USAGE.md](USAGE.md) | 接口使用说明：六个入口、选项、参数校验矩阵、错误模型、配方与陷阱 |
 | [PERFORMANCE.md](PERFORMANCE.md) | 接口性能基线与基准复现命令 |
 | [TEST_REPORT.md](TEST_REPORT.md) | 发布前测试报告：覆盖率、双后端验证、模糊测试、已知缺口 |
+| [RELEASE_NOTES.md](RELEASE_NOTES.md) | 发版说明：新增能力、不兼容变更、升级步骤 |
+| [RISK_REGISTER.md](RISK_REGISTER.md) | 风险清单与评审意见 |
+| [MANAGEMENT_SUMMARY.md](MANAGEMENT_SUMMARY.md) | 一页管理层摘要 |
 | [AGENTS.md](AGENTS.md) | 贡献者与编码代理的项目规则 |
 
 ## 支持矩阵
@@ -383,6 +386,14 @@ if err := info.Check(encryption.SMBackendGMSSL); err != nil {
 - 构建镜像、运行期依赖、交叉编译限制与验证清单见 [deploy/gmssl/README.md](deploy/gmssl/README.md)。
 
 ## 开发
+
+```bash
+./scripts/verify.sh                                   # 全部门禁一键复现
+./scripts/verify.sh --docker                          # 追加 GmSSL CGO 分支
+./scripts/verify.sh --coverage-gate scripts/coverage-baseline.txt
+```
+
+也可手工执行：
 
 ```bash
 gofmt -l .

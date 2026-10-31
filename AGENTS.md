@@ -23,6 +23,9 @@
 - 若 shell 中 `go` 不可用，先修复 Go 环境；不要修改 `go.mod` 的版本要求来绕过。
 
 ```bash
+./scripts/verify.sh        # 一键跑下面全部门禁（含覆盖率门禁与 fuzz 冒烟）
+./scripts/verify.sh --docker  # 追加 GmSSL CGO 镜像与容器内 -race
+
 gofmt -l .                 # 必须无输出
 go vet ./...
 go test ./...
@@ -64,6 +67,10 @@ streamecb.go               ECB 的 cipher.BlockMode 适配与 writeAll
 layout_test.go             adapter 独立性 / aes↔sm4 等价性断言
 smbackend.go               SM4/SM2 后端运行时自检（SMBackends / SMBackendInfo.Check）
 TEST_REPORT.md             发布前测试报告（覆盖率、双后端、fuzz、已知缺口）
+RELEASE_NOTES.md           发版说明（新增/不兼容/升级步骤）
+RISK_REGISTER.md           风险清单与评审意见
+MANAGEMENT_SUMMARY.md      一页管理层摘要
+scripts/verify.sh          一键门禁；scripts/coverage-baseline.txt 覆盖率基线
 standard/                  接口、常量与错误哨兵（不要在此引入实现依赖）
 padding/                   填充实现（standard.IPadding 的公开实现）
 format/                    编码实现（Base64 / Base64URL / RawURL / Hex / Original）
@@ -249,6 +256,8 @@ go test -run '^$' -fuzz=FuzzParseCiphertextNoPanic -fuzztime=10s ./adapter/sm2
 - [ ] 接口签名/默认值/错误变化已同步 `USAGE.md`
 - [ ] 性能敏感路径的改动已重跑 `PERFORMANCE.md` 的基准并更新表格
 - [ ] `TEST_REPORT.md` 已更新（覆盖率、双后端结果、fuzz、已知缺口）
+- [ ] `RELEASE_NOTES.md` / `RISK_REGISTER.md` 已按本次变更更新
+- [ ] `./scripts/verify.sh --coverage-gate scripts/coverage-baseline.txt` 通过
 - [ ] 破坏性变更已写入 `README.md` 的“从旧版本迁移”并在本文件记录
 - [ ] 未引入新的数据触发 panic
 - [ ] 未在解析路径中修改共享状态
