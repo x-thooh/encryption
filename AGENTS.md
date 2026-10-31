@@ -243,6 +243,9 @@ go test -run '^$' -fuzz=FuzzStreamDecryptNoPanic -fuzztime=10s .
 - 构造函数对非法配置 panic，属于现有 API 约束；如需改为返回 error，需要一次性调整门面签名并更新全部测试（`Stream` 已完成这一改造，其余入口仍保持 panic）。
 - 分帧 AEAD 已能拒绝截断/重排/重复/跨流拼接，但无法防止整条流的重放；需要时由上层协议（序号、时间戳、请求 ID）防护。
 - 密钥解析缓存是每个 adapter 实例一份，跨实例不复用；作跨实例缓存需要调用方自行缓存密钥字符串或解析结果。
+- `adapter/rsa/key/cache.go` 与 `adapter/sm2/key/cache.go` 是逐字节相同的两份 `keyCache`，`decodeKey` 的 Base64/Hex 分支同样重复。这是 §3 分层规则的代价：**不要**为消除它新建共享包或让两个 adapter 互相 import；要收敛只能先改分层规则（例如新增 `internal/`），且需同步更新 `layout_test.go` 的 `TestAdapterIndependence`。
+- `WithFormatType` 在两个入口语义不同：`Generate` 用它选**密钥编码**，`Encrypt`/`Sign` 用它选**密文/签名编码**。`Generate(WithFormatType(Base64))` 产出的密钥不会被 `Encrypt` 自动解析成 Base64，必须另传 `WithKeyOptions(WithType(...))`。改这一处时两个入口都要考虑。
+- `coverage-exceptions.txt` 按「文件:行号」定位，在 `adapter/rsa/pkcs.go` / `adapter/rsa/oaep.go` 的命中行之上插删代码会让覆盖率门禁把例外误报为「过时」。按门禁提示更新行号即可，不要靠删例外来通过。
 - AES 与 SM4 的模式实现是两份刻意重复的副本（各 adapter 自包含，不共享实现层）。两者等价性只能靠 `layout_test.go` 的 `TestAESAndSM4Mirror` 守卫；修 bug 时务必两份一起改。SM4-CCM 没有公开标准向量，`adapter/sm4/ccm_test.go` 用固定输出做回归，算法正确性由 `adapter/aes/ccm_test.go` 的 RFC 3610 向量背书。
 - `padding` / `format` 是公开包，改接口或新增实现会影响用户的既有 import 路径（从 `pkg/padding` 迁移到 `padding` 已写入 `README.md`）。
 - CGO 后端覆盖 SM4 与 SM2（各自自写 cgo shim 直连 `libgmssl`，不经第三方 Go 包装）。SM3 与 ZA 计算仍为纯 Go：SM2 的摘要由本库算好后交给 GmSSL 签名/验签，因此后端切换不影响签名可验证性。

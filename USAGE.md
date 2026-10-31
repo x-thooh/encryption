@@ -57,7 +57,7 @@ type IStream interface {
 | `WithIV([]byte)` | IV / nonce | `Encrypt`、`Stream` |
 | `WithPubKey(string)` | 公钥串 | `Encrypt`、`EncryptSign`、`Sign` |
 | `WithPriKey(string)` | 私钥串 | `Encrypt`、`EncryptSign`、`Sign` |
-| `WithFormatType(FormatType)` | 输出编码 | 全部（`Stream` 除外，恒为原始字节） |
+| `WithFormatType(FormatType)` | 输出编码 | 全部（`Stream` 除外，恒为原始字节）。注意它在 `Generate` 里表示**密钥编码**、在 `Encrypt`/`Sign` 里表示**密文/签名编码**，是同一个枚举的两个独立旋钮；非 PEM 密钥还需要 `WithRSAOptions(rsa.WithKeyOptions(grsa.WithType(...)))` 或 `WithSM2Options(sm2.WithKeyOptions(gsm2.WithType(...)))` |
 
 算法层选项（优先级高于门面层同名设置）：
 
