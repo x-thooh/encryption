@@ -40,3 +40,19 @@ jobs:
           name: coverage
           path: coverage.out
           if-no-files-found: ignore
+
+  gmssl-cgo:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build GmSSL backend and run tests (-tags gmssl)
+        run: docker build -f deploy/gmssl/Dockerfile --target test -t encryption-gmssl:ci .
+
+      - name: Assert CGO backend was selected
+        run: |
+          docker run --rm encryption-gmssl:ci bash -c '
+            cd /src/encryption
+            echo "CgoFiles: $(go list -tags gmssl -f "{{.CgoFiles}}" ./adapter/sm4)"
+            test "$(go list -tags gmssl -f "{{.CgoFiles}}" ./adapter/sm4)" = "[backend_gmssl.go]"
+          '

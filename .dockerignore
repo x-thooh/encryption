@@ -1,0 +1,7 @@
+# 本地 Go 模块缓存与工具产物，不进构建上下文
+.go/
+.idea/
+.codegraph/
+.git/
+*.out
+coverage.*
