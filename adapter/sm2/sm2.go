@@ -1,7 +1,6 @@
 package sm2
 
 import (
-	"crypto/rand"
 	"encoding/asn1"
 	"fmt"
 	"math/big"
@@ -11,6 +10,12 @@ import (
 	"github.com/x-thooh/encryption/format"
 	"github.com/x-thooh/encryption/standard"
 )
+
+// Backend 返回当前编译进二进制的 SM2 曲线运算来源："purego" 或 "gmssl"。
+//
+// 密钥解析、ZA + SM3 摘要与 ASN.1 编解码始终由本库完成，只有曲线运算
+// （签名、验签、加密、解密）会随 -tags gmssl 切换到 GmSSL C 库。
+func Backend() string { return backendName }
 
 type sm2 struct {
 	pubKey string
@@ -52,11 +57,21 @@ func (s *sm2) Encrypt(origData []byte) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	encrypt, err := gsm2.Encrypt(rand.Reader, publicKey, origData, s.getEncrypterOpts(s.o.marshalMode, s.o.splicingOrder))
+
+	// 后端统一返回规范形态（未压缩 C1 || C3 || C2），再按选项重排编码。
+	canonical, err := encryptPoint(publicKey, origData)
 	if err != nil {
 		return "", fmt.Errorf("%w: %w", standard.ErrEncrypt, err)
 	}
-	return s.o.format.EncodeToString(encrypt), nil
+	parts, err := splitCanonical(canonical)
+	if err != nil {
+		return "", fmt.Errorf("%w: %w", standard.ErrEncrypt, err)
+	}
+	out, err := parts.marshal(s.o.marshalMode, s.o.splicingOrder)
+	if err != nil {
+		return "", fmt.Errorf("%w: %w", standard.ErrEncrypt, err)
+	}
+	return s.o.format.EncodeToString(out), nil
 }
 
 func (s *sm2) Decrypt(ciphertext string) ([]byte, error) {
@@ -64,11 +79,15 @@ func (s *sm2) Decrypt(ciphertext string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	encrypt, err := s.o.format.DecodeString(ciphertext)
+	data, err := s.o.format.DecodeString(ciphertext)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", standard.ErrInvalidCiphertext, err)
 	}
-	plain, err := privateKey.Decrypt(rand.Reader, encrypt, s.getDecrypterOpts(s.o.splicingOrder))
+	parts, err := parseCiphertext(s.o.splicingOrder, data)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", standard.ErrInvalidCiphertext, err)
+	}
+	plain, err := decryptPoint(privateKey, parts.canonical())
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", standard.ErrDecrypt, err)
 	}
@@ -86,7 +105,7 @@ func (s *sm2) Sign(plainText []byte) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("%w: %w", standard.ErrSign, err)
 	}
-	r, ss, err := gsm2.Sign(rand.Reader, &privateKey.PrivateKey, digest)
+	r, ss, err := signDigest(privateKey, digest)
 	if err != nil {
 		return "", fmt.Errorf("%w: %w", standard.ErrSign, err)
 	}
@@ -149,47 +168,8 @@ func (s *sm2) Verify(plainText []byte, signature string) error {
 	if err != nil {
 		return fmt.Errorf("%w: %w", standard.ErrVerification, err)
 	}
-	if !gsm2.Verify(publicKey, digest, r, ss) {
+	if !verifyDigest(publicKey, digest, r, ss) {
 		return fmt.Errorf("%w: signature mismatch", standard.ErrVerification)
 	}
 	return nil
-}
-
-func (s *sm2) getEncrypterOpts(marshalMode PointMarshalMode, splicingOrder CiphertextSplicingOrder) *gsm2.EncrypterOpts {
-	switch marshalMode {
-	// 压缩
-	case MarshalCompressed:
-		switch splicingOrder {
-		case C1C3C2:
-			return gsm2.NewPlainEncrypterOpts(0, 0)
-		case C1C2C3:
-			return gsm2.NewPlainEncrypterOpts(0, 1)
-		}
-	// 未压缩
-	case MarshalUncompressed:
-		switch splicingOrder {
-		case C1C3C2:
-			return gsm2.NewPlainEncrypterOpts(1, 0)
-		case C1C2C3:
-			return gsm2.NewPlainEncrypterOpts(1, 1)
-		}
-	// 混合
-	case MarshalHybrid:
-		switch splicingOrder {
-		case C1C3C2:
-			return gsm2.NewPlainEncrypterOpts(2, 0)
-		case C1C2C3:
-			return gsm2.NewPlainEncrypterOpts(2, 1)
-		}
-	}
-	return gsm2.NewPlainEncrypterOpts(1, 1)
-}
-
-func (s *sm2) getDecrypterOpts(splicingOrder CiphertextSplicingOrder) *gsm2.DecrypterOpts {
-	switch splicingOrder {
-	case C1C3C2:
-		return gsm2.NewPlainDecrypterOpts(0)
-	default:
-		return gsm2.NewPlainDecrypterOpts(1)
-	}
 }
