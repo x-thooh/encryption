@@ -43,6 +43,7 @@ COPY . .
 
 # 先确认 CGO 后端真的被选中（否则 -tags gmssl 会静默变成纯 Go），再跑全部测试。
 RUN test "$(go list -tags gmssl -f '{{.CgoFiles}}' ./adapter/sm4)" = "[backend_gmssl.go]" \
+    && test "$(go list -tags gmssl -f '{{.CgoFiles}}' ./adapter/sm2)" = "[backend_gmssl.go]" \
     && go build -tags gmssl ./... \
     && go vet -tags gmssl ./... \
     && go test -tags gmssl -count=1 ./...
