@@ -66,7 +66,8 @@ for target in \
 	"FuzzCBCDecryptNoPanic ./adapter/aes" \
 	"FuzzGCMDecryptNoPanic ./adapter/aes" \
 	"FuzzCFB8RoundTrip ./adapter/aes" \
-	"FuzzParseCiphertextNoPanic ./adapter/sm2"; do
+	"FuzzParseCiphertextNoPanic ./adapter/sm2" \
+	"FuzzStreamDecryptNoPanic ./."; do
 	set -- $target
 	go test -run '^$' -fuzz="$1" -fuzztime=5s "$2" >/dev/null
 	echo "ok   $1"

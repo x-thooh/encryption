@@ -233,6 +233,7 @@ go test -run '^$' -fuzz=FuzzCBCDecryptNoPanic -fuzztime=10s ./adapter/aes
 go test -run '^$' -fuzz=FuzzGCMDecryptNoPanic -fuzztime=10s ./adapter/aes
 go test -run '^$' -fuzz=FuzzCFB8RoundTrip -fuzztime=10s ./adapter/aes ./adapter/sm4
 go test -run '^$' -fuzz=FuzzParseCiphertextNoPanic -fuzztime=10s ./adapter/sm2
+go test -run '^$' -fuzz=FuzzStreamDecryptNoPanic -fuzztime=10s .
 ```
 
 ## 7. 已知限制 / 后续方向

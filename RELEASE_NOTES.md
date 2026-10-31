@@ -61,7 +61,7 @@ if err := info.Check(encryption.SMBackendGMSSL); err != nil {
 | 错配守卫 | `CGO_ENABLED=0 -tags gmssl` 显式报错（CI job `cgo-disabled-guard`） |
 | 覆盖率 | 合计 **99.8%**；10 个包中 9 个为 **100%**，剩 3 条不可达语句由 `coverage-exceptions.txt` 门禁校验 |
 | 静态检查 | `gofmt` 无输出、`go vet` 通过、`golangci-lint` **0 issues** |
-| 模糊测试 | 5 个 target（padding / CBC / GCM / CFB8 / SM2 密文解析）各 5s 通过 |
+| 模糊测试 | 6 个 target（padding / CBC / GCM / CFB8 / SM2 密文解析 / 流式解密）各 5s 通过 |
 
 ## 升级步骤
 

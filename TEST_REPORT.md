@@ -16,7 +16,7 @@
 | 数据竞争 | `go test -race ./...` | ✅ 通过 |
 | CGO 分支 | `docker build -f deploy/gmssl/Dockerfile --target test .` | ✅ 构建断言 + 全量测试通过 |
 | CGO 竞争检测 | 容器内 `go test -tags gmssl -race ./...` | ✅ 通过 |
-| 模糊测试 | 5 个 target × 5s | ✅ 全部通过（无新语料失败） |
+| 模糊测试 | 6 个 target × 5s | ✅ 全部通过（无新语料失败） |
 | 覆盖率 | `./scripts/verify.sh --coverage-gate scripts/coverage-baseline.txt` | ✅ 合计 **99.8%**，9/10 个包 100%，剩 3 条不可达语句受例外门禁校验 |
 | 后端互操作 | `adapter/sm2/backend_test.go` 双向固定向量 | ✅ 纯 Go ↔ GmSSL 互相能解、能验 |
 | 错配守卫 | `CGO_ENABLED=0 go test -tags gmssl -run NoCGO ./adapter/sm4 ./adapter/sm2` | ✅ 显式失败（CI job `cgo-disabled-guard`） |
@@ -105,10 +105,15 @@ python3 scripts/check-coverage-exceptions.py coverage.out coverage-exceptions.tx
 | `FuzzCBCDecryptNoPanic` | `./adapter/aes` | ✅ 通过 |
 | `FuzzGCMDecryptNoPanic` | `./adapter/aes` | ✅ 通过 |
 | `FuzzCFB8RoundTrip` | `./adapter/aes` | ✅ 通过 |
-| `FuzzParseCiphertextNoPanic` | `./adapter/sm2` | ✅ 通过（本轮新增） |
+| `FuzzParseCiphertextNoPanic` | `./adapter/sm2` | ✅ 通过 |
+| `FuzzStreamDecryptNoPanic` | `.`（根包） | ✅ 通过（本轮新增） |
 
 `FuzzParseCiphertextNoPanic` 覆盖 SM2 密文的解析与重编码：任意字节输入都不允许 panic，
 且规范化后重新解析必须保持曲线点不变。
+
+`FuzzStreamDecryptNoPanic` 覆盖 `Stream` 的 7 种模型（CBC/ECB/CFB/OFB/CTR/GCM/CCM）：
+分帧 AEAD 会按密文头部的长度分配缓冲区、块模式会按密文长度去填充，两条路径都不允许
+出现数据触发的 panic。
 
 ## 6. 并发
 
@@ -116,6 +121,9 @@ python3 scripts/check-coverage-exceptions.py coverage.out coverage-exceptions.tx
 - 容器内 `go test -tags gmssl -race ./...`：CGO 后端全通过。
 - 重点路径：密钥解析缓存（每实例 FIFO）、`Stream` 的固定 IV 一次性保护（`atomic.CompareAndSwap`）、
   SM4/SM2 实例构造后只读。
+- 回归用例：`TestConcurrentSymmetric` / `TestConcurrentAsymmetric` / `TestConcurrentStream`
+  （`concurrency_test.go`）用 4–8 个 goroutine 共享同一实例跑加解密与签名验签，
+  把「构造完成后可并发使用」这条承诺钉成可执行断言。
 
 ## 7. 已知缺口与风险
 
