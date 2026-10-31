@@ -39,6 +39,13 @@ func NewSM2(opts ...Option) *SM2 {
 	return s
 }
 
+// marshalPKIX / marshalSM2Private 是 x509 编码函数的可替换引用：
+// 合法 SM2 密钥编码不会失败，该失败分支仅在测试里注入覆盖。
+var (
+	marshalPKIX       = smx509.MarshalPKIXPublicKey
+	marshalSM2Private = smx509.MarshalSM2PrivateKey
+)
+
 func (s *SM2) Generate() (string, string, error) {
 	if s.o._type != "" && s.o._type != Base64 && s.o._type != Base64URL && s.o._type != Base64RawURL && s.o._type != Hex {
 		return "", "", fmt.Errorf("unsupported key type: %q", s.o._type)
@@ -57,14 +64,14 @@ func (s *SM2) Generate() (string, string, error) {
 		priBs, pubBs   []byte
 	)
 
-	pubBs, err = smx509.MarshalPKIXPublicKey(pri.Public())
+	pubBs, err = marshalPKIX(pri.Public())
 	if err != nil {
 		return "", "", err
 	}
 
 	switch s.o.PcksType {
 	case Pcks1Ec:
-		priBs, err = smx509.MarshalSM2PrivateKey(pri)
+		priBs, err = marshalSM2Private(pri)
 	case Pcks8:
 		priBs, err = smx509.MarshalPKCS8PrivateKey(pri)
 	}

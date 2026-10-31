@@ -38,6 +38,13 @@ func NewRSA(opts ...Option) *Rsa {
 	return r
 }
 
+// marshalPKCS8 / marshalPKIX 是 x509 编码函数的可替换引用：
+// 合法 RSA 密钥编码不会失败，该失败分支仅在测试里注入覆盖。
+var (
+	marshalPKCS8 = x509.MarshalPKCS8PrivateKey
+	marshalPKIX  = x509.MarshalPKIXPublicKey
+)
+
 func (x *Rsa) Generate() (string, string, error) {
 	if x.o._type != "" && x.o._type != Base64 && x.o._type != Base64URL && x.o._type != Base64RawURL && x.o._type != Hex {
 		return "", "", fmt.Errorf("unsupported key type: %q", x.o._type)
@@ -57,11 +64,11 @@ func (x *Rsa) Generate() (string, string, error) {
 		priBs = x509.MarshalPKCS1PrivateKey(pri)
 		pubBs = x509.MarshalPKCS1PublicKey(pub)
 	} else {
-		priBs, err = x509.MarshalPKCS8PrivateKey(pri)
+		priBs, err = marshalPKCS8(pri)
 		if err != nil {
 			return "", "", err
 		}
-		pubBs, err = x509.MarshalPKIXPublicKey(pub)
+		pubBs, err = marshalPKIX(pub)
 		if err != nil {
 			return "", "", err
 		}

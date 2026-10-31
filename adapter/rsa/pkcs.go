@@ -91,11 +91,8 @@ func (p *pcks) Decrypt(cipherB64 string) ([]byte, error) {
 	buffer := bytes.Buffer{}
 
 	for start := 0; start < len(cipherBytes); start += keySize {
-		end := start + keySize
-		if end > len(cipherBytes) {
-			end = len(cipherBytes)
-		}
-		block, err := crsa.DecryptPKCS1v15(rand.Reader, rsaPri, cipherBytes[start:end])
+		// len(cipherBytes) 已校验为 keySize 的整数倍，end 不会越界。
+		block, err := crsa.DecryptPKCS1v15(rand.Reader, rsaPri, cipherBytes[start:start+keySize])
 		if err != nil {
 			return nil, fmt.Errorf("%w: %w", standard.ErrDecrypt, err)
 		}

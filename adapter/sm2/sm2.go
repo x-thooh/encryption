@@ -25,9 +25,15 @@ type sm2 struct {
 	o   *options
 }
 
+// r、s 标记 optional：缺失字段会解析成 nil，由校验拒绝（而不是让 asn1 报错）。
 type sm2Signature struct {
-	R, S *big.Int
+	R *big.Int `asn1:"optional"`
+	S *big.Int `asn1:"optional"`
 }
+
+// encryptCanonical 是 encryptPoint 的可替换引用：后端按契约返回规范形态，
+// 该split 失败分支不可能发生，仅在测试里注入坏数据覆盖（生产代码不会改它）。
+var encryptCanonical = encryptPoint
 
 // marshalSignature 是 asn1.Marshal 的可替换引用：R/S 一定可编码，失败分支不可能发生，
 // 仅在测试里用替身覆盖该分支（生产代码不会改它）。
@@ -63,7 +69,7 @@ func (s *sm2) Encrypt(origData []byte) (string, error) {
 	}
 
 	// 后端统一返回规范形态（未压缩 C1 || C3 || C2），再按选项重排编码。
-	canonical, err := encryptPoint(publicKey, origData)
+	canonical, err := encryptCanonical(publicKey, origData)
 	if err != nil {
 		return "", fmt.Errorf("%w: %w", standard.ErrEncrypt, err)
 	}

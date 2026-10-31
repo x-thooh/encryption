@@ -2,7 +2,9 @@ package key
 
 import (
 	"crypto/rand"
+
 	"errors"
+	gsm2 "github.com/emmansun/gmsm/sm2"
 	"testing"
 
 	"github.com/x-thooh/encryption/standard"
@@ -59,5 +61,22 @@ func TestParseErrors(t *testing.T) {
 	}
 	if _, err := hexKey.ParsePrivateKey("zz"); !errors.Is(err, standard.ErrInvalidKey) {
 		t.Fatalf("hex private: got %v", err)
+	}
+}
+
+// TestGenerateMarshalFailure 覆盖 x509 编码失败的防御分支（正常密钥不会失败）。
+func TestGenerateMarshalFailure(t *testing.T) {
+	origPKIX, origSM2 := marshalPKIX, marshalSM2Private
+	t.Cleanup(func() { marshalPKIX, marshalSM2Private = origPKIX, origSM2 })
+
+	marshalPKIX = func(any) ([]byte, error) { return nil, errors.New("marshal failed") }
+	if pub, pri, err := NewSM2().Generate(); err == nil || pub != "" || pri != "" {
+		t.Fatalf("pkix failure: pub=%q pri=%q err=%v", pub, pri, err)
+	}
+
+	marshalPKIX = origPKIX
+	marshalSM2Private = func(*gsm2.PrivateKey) ([]byte, error) { return nil, errors.New("marshal failed") }
+	if pub, pri, err := NewSM2(WithPcksType(Pcks1Ec)).Generate(); err == nil || pub != "" || pri != "" {
+		t.Fatalf("sm2 key failure: pub=%q pri=%q err=%v", pub, pri, err)
 	}
 }

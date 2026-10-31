@@ -89,3 +89,20 @@ func TestParseErrors(t *testing.T) {
 		t.Fatalf("hex private: got %v", err)
 	}
 }
+
+// TestGenerateMarshalFailure 覆盖 x509 编码失败的防御分支（正常密钥不会失败）。
+func TestGenerateMarshalFailure(t *testing.T) {
+	origPKCS8, origPKIX := marshalPKCS8, marshalPKIX
+	t.Cleanup(func() { marshalPKCS8, marshalPKIX = origPKCS8, origPKIX })
+
+	marshalPKCS8 = func(any) ([]byte, error) { return nil, errors.New("marshal failed") }
+	if pub, pri, err := NewRSA(WithSize(1024)).Generate(); err == nil || pub != "" || pri != "" {
+		t.Fatalf("pkcs8 failure: pub=%q pri=%q err=%v", pub, pri, err)
+	}
+
+	marshalPKCS8 = origPKCS8
+	marshalPKIX = func(any) ([]byte, error) { return nil, errors.New("marshal failed") }
+	if pub, pri, err := NewRSA(WithSize(1024)).Generate(); err == nil || pub != "" || pri != "" {
+		t.Fatalf("pkix failure: pub=%q pri=%q err=%v", pub, pri, err)
+	}
+}

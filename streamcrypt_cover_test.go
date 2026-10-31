@@ -64,7 +64,8 @@ func ecbMode(t *testing.T) cipher.BlockMode {
 
 func TestCryptStreamWriteError(t *testing.T) {
 	mode := ecbMode(t)
-	err := cryptStream(mode, padding.NewPKCS7(), bytes.NewReader([]byte("data")), errWriter{}, false)
+	// 超过一个块，确保错误发生在流式写出阶段（而不是收尾阶段）。
+	err := cryptStream(mode, padding.NewPKCS7(), bytes.NewReader(bytes.Repeat([]byte("x"), 64)), errWriter{}, false)
 	if err == nil {
 		t.Fatal("expected write error")
 	}

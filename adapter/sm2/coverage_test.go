@@ -2,6 +2,7 @@ package sm2
 
 import (
 	"bytes"
+	"crypto/ecdsa"
 	"crypto/rand"
 	"encoding/asn1"
 	"encoding/hex"
@@ -106,5 +107,37 @@ func TestFixtureKeyParseCacheHits(t *testing.T) {
 		if _, err := s.Sign([]byte(fixtureMsg)); err != nil {
 			t.Fatalf("sign #%d: %v", i, err)
 		}
+	}
+}
+
+// TestEncryptCanonicalCorrupted 覆盖「后端返回非规范形态」的防御分支。
+func TestEncryptCanonicalCorrupted(t *testing.T) {
+	orig := encryptCanonical
+	encryptCanonical = func(*ecdsa.PublicKey, []byte) ([]byte, error) {
+		return []byte{0x09, 0x01}, nil
+	}
+	t.Cleanup(func() { encryptCanonical = orig })
+
+	s := fixtureAdapter(t)
+	out, err := s.Encrypt([]byte(fixtureMsg))
+	if !errors.Is(err, standard.ErrEncrypt) {
+		t.Fatalf("got %v, want ErrEncrypt", err)
+	}
+	if out != "" {
+		t.Fatalf("must not produce output, got %q", out)
+	}
+}
+
+// TestEncryptBackendFailure 覆盖后端加密失败的包装分支。
+func TestEncryptBackendFailure(t *testing.T) {
+	orig := encryptCanonical
+	encryptCanonical = func(*ecdsa.PublicKey, []byte) ([]byte, error) {
+		return nil, errors.New("backend failed")
+	}
+	t.Cleanup(func() { encryptCanonical = orig })
+
+	s := fixtureAdapter(t)
+	if _, err := s.Encrypt([]byte(fixtureMsg)); !errors.Is(err, standard.ErrEncrypt) {
+		t.Fatalf("got %v, want ErrEncrypt", err)
 	}
 }
