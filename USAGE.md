@@ -422,5 +422,6 @@ encryption.WithFormatType(standard.FormatTypeOriginal)  // 省掉 Base64（省�
 | JSON 里出现乱码 | 用了 `FormatTypeOriginal` | 文本载体改用 Base64 / Base64URL / Hex |
 | 大文件解密偶发 error | 上次加密没写终止帧（流式被中断） | 分帧 AEAD 必须完整写入终止帧 |
 | 流式解密报 `ErrInvalidCiphertext`（trailing data after terminal frame） | 同一个 reader 里有终止帧之后的额外字节 | 每条流单独一个 reader；需要连发时先按帧长度切分 |
+| `Stream` 报 `CFB only supports 128-bit feedback` | 流式 CFB 基于 CFB128 | 用 CFB8/CFB64 请改用一次性 `Encrypt`；流式保持默认 CFB128 |
 | 尾部 0x00 丢失 | `Zeros` 填充不可逆 | 需要保留零字节时改用 PKCS#7 |
 | 高频解析密钥变慢 | 缓存是每实例一份 | 复用同一个 `IEncrypt` / `ISign` 实例 |

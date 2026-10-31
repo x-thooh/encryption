@@ -151,7 +151,7 @@ err = d.DecryptStream(reader, writer)
 - AEAD（GCM/CCM/ChaCha20-Poly1305）分帧格式：`uint32 大端长度 || 密文`，帧明文为 `streamID(8) || seq(4) || kind(1) || data`，每帧独立随机 nonce，并以终止帧收尾。
 - AEAD 流式模式要求不传 `WithIV`（使用随机 nonce）；传入固定 IV 返回 `standard.ErrInvalidIV`。AEAD 流对象可安全复用。
 - 流式接口始终输出原始字节，忽略 `WithFormatType`。
-- RSA/SM2 不支持流式；CFB 流式仅支持 CFB128。
+- RSA/SM2 不支持流式；CFB 流式仅支持 CFB128（显式传入 8/64 会在 `Stream` 构造时返回 error，不会静默降级）。
 
 ### SM4 加解密
 

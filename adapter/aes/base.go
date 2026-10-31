@@ -36,6 +36,28 @@ func WithCFBSegmentSize(bits int) Option {
 	}
 }
 
+// cfbSegmentSize 解析 CFB 反馈位数，0 视为默认 128。
+//
+// NewCFB 与 CFBSegmentSize 共用这一处默认值逻辑，避免两处各写一遍。
+func cfbSegmentSize(o *options) int {
+	if o.cfbSegmentSize == 0 {
+		return 128
+	}
+	return o.cfbSegmentSize
+}
+
+// CFBSegmentSize 返回给定选项下生效的 CFB 反馈位数（0 视为默认 128）。
+//
+// 供流式入口在构造前校验「流式只支持 CFB128」时复用同一套默认值逻辑，
+// 避免流式路径静默忽略 WithCFBSegmentSize。
+func CFBSegmentSize(opts ...Option) int {
+	o := &options{}
+	for _, opt := range opts {
+		opt(o)
+	}
+	return cfbSegmentSize(o)
+}
+
 // WithAAD 设置 AEAD 的额外认证数据（GCM / CCM）。
 func WithAAD(aad []byte) Option {
 	return func(o *options) {

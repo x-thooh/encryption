@@ -179,6 +179,62 @@ func TestStreamBlockDecryptErrorContract(t *testing.T) {
 	}
 }
 
+// TestStreamCFBFeedback 断言流式 CFB 只接受 128 位反馈。
+//
+// 流式实现基于 crypto/cipher 的 CFB128，静默忽略 WithCFBSegmentSize(8|64)
+// 会让调用方以为拿到了自己请求的强度，因此非 128 必须显式报错。
+func TestStreamCFBFeedback(t *testing.T) {
+	cases := []struct {
+		name    string
+		typ     standard.Type
+		key     []byte
+		segment int
+	}{
+		{"AES-CFB8", standard.TypeAES, aesKey, 8},
+		{"AES-CFB64", standard.TypeAES, aesKey, 64},
+		{"SM4-CFB8", standard.TypeSM4, sm4Key, 8},
+		{"SM4-CFB64", standard.TypeSM4, sm4Key, 64},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			opts := []encryption.Option{
+				encryption.WithType(tc.typ),
+				encryption.WithModel(standard.ModelCFB),
+				encryption.WithKey(tc.key),
+				encryption.WithIV(iv),
+			}
+			if tc.typ == standard.TypeSM4 {
+				opts = append(opts, encryption.WithSM4Options(sm4.WithCFBSegmentSize(tc.segment)))
+			} else {
+				opts = append(opts, encryption.WithAESOptions(aes.WithCFBSegmentSize(tc.segment)))
+			}
+
+			if s, err := encryption.Stream(opts...); err == nil {
+				t.Fatalf("segment=%d: expected error, got %T", tc.segment, s)
+			}
+		})
+	}
+
+	// 默认与显式 128 仍然可用。
+	for _, segment := range []int{0, 128} {
+		s, err := encryption.Stream(
+			encryption.WithType(standard.TypeAES),
+			encryption.WithModel(standard.ModelCFB),
+			encryption.WithKey(aesKey),
+			encryption.WithIV(iv),
+			encryption.WithAESOptions(aes.WithCFBSegmentSize(segment)),
+		)
+		if err != nil {
+			t.Fatalf("segment=%d: unexpected error %v", segment, err)
+		}
+		var buf bytes.Buffer
+		if err := s.EncryptStream(bytes.NewReader([]byte("cfb128")), &buf); err != nil {
+			t.Fatalf("segment=%d: encrypt: %v", segment, err)
+		}
+	}
+}
+
 func TestStreamAEADModes(t *testing.T) {
 	key := bytes.Repeat([]byte{0x01}, 32)
 	plain := []byte("stream aead plaintext")

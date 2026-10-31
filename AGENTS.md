@@ -139,7 +139,7 @@ adapter/aes/
 - 流式数据类错误与一次性路径共用同一组哨兵：空/非对齐密文、坏填充等必须分别携带 `standard.ErrInvalidCiphertext` / `standard.ErrDecrypt`，不允许返回裸字符串（见 §4.2）。
 - 固定 IV 的块/流模式实例只能加密一次，第二次 `EncryptStream` 返回 `standard.ErrStreamReused`（固定 IV 复用会复用 keystream）；解密不推进状态，可重复调用。AEAD 分帧实例可复用。
 - 流式帧长度上限 64 MiB；解码时先校验长度再分配内存。
-- RSA/SM2 不支持流式；CFB 流式仅支持 CFB128。
+- RSA/SM2 不支持流式；CFB 流式仅支持 CFB128，显式传入 8/64 反馈位数时 `Stream` 返回 error（不得静默降级）。
 
 ### 4.6 密钥生成返回值顺序
 

@@ -16,11 +16,7 @@ func NewCFB(key []byte, iv []byte, opts ...Option) standard.IEncrypt {
 	for _, opt := range opts {
 		opt(o)
 	}
-	bits := o.cfbSegmentSize
-	if bits == 0 {
-		bits = 128
-	}
-	return newBlockCipher(standard.ModelCFB, key, iv, nil, o.format, bits)
+	return newBlockCipher(standard.ModelCFB, key, iv, nil, o.format, cfbSegmentSize(o))
 }
 
 // encryptCFB 加密：CFB128 走标准库，CFB8 / CFB64 走本包的分段实现。

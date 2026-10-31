@@ -172,14 +172,31 @@ func newBlockStream(block cipher.Block, o *options) (standard.IStream, error) {
 		if len(iv) != block.BlockSize() {
 			return nil, fmt.Errorf("%w: got %d, want %d", standard.ErrInvalidIV, len(iv), block.BlockSize())
 		}
+		// 流式 CFB 基于 crypto/cipher 的 CFB128；非 128 反馈位数必须显式拒绝，
+		// 不能静默降级成 CFB128。
+		if o.m == standard.ModelCFB {
+			if bits := streamCFBBits(o); bits != 128 {
+				return nil, fmt.Errorf("stream: CFB only supports 128-bit feedback, got %d; use Encrypt for CFB8/CFB64", bits)
+			}
+		}
 		return &streamMode{block: block, iv: iv, mode: o.m}, nil
 	default:
 		panic("stream not support model: " + string(o.m))
 	}
 }
 
-// onceGuard 记录持有固定 IV 的流对象是否已用于加密。
+// streamCFBBits 解析调用方为 CFB 配置的反馈位数（0 视为默认 128）。
 //
+// 门面层把算法选项原样下钻到 adapter，根包拿不到 options 内部值，
+// 因此通过 adapter 的 CFBSegmentSize 复用同一套默认值逻辑。
+func streamCFBBits(o *options) int {
+	if o.t == standard.TypeSM4 {
+		return sm4adapter.CFBSegmentSize(o.sm4Options...)
+	}
+	return aesadapter.CFBSegmentSize(o.aesOptions...)
+}
+
+// onceGuard 记录持有固定 IV 的流对象是否已用于加密。
 // 固定 IV 下重复加密会复用 keystream：CBC 的 IV 相同、CTR/OFB/CFB 的流起点相同，
 // 相同明文会产生相同密文。这里直接拒绝第二次加密，而不是静默输出弱密文。
 type onceGuard struct {
