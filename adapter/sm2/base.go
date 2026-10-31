@@ -9,11 +9,11 @@ type (
 	PointMarshalMode        byte
 	CiphertextSplicingOrder byte
 
-	HashType string
+	// SignatureFormat SM2 签名输出格式。
+	SignatureFormat string
 )
 
 const (
-
 	// MarshalUncompressed 未压缩
 	MarshalUncompressed PointMarshalMode = 0
 	// MarshalCompressed 压缩
@@ -26,20 +26,20 @@ const (
 	// C1C2C3 国密标准 GM/T 0003.2
 	C1C2C3 CiphertextSplicingOrder = 1
 
-	SM3    HashType = "sm3"
-	MD5    HashType = "md5"
-	SHA1   HashType = "sha1"
-	SHA256 HashType = "sha256"
-	SHA384 HashType = "sha384"
-	SHA512 HashType = "sha512"
+	// SignatureDER ASN.1 DER SEQUENCE{r,s}，默认。
+	SignatureDER SignatureFormat = "DER"
+	// SignatureRaw r||s 定长 64 字节，部分国内网关要求此格式。
+	SignatureRaw SignatureFormat = "RAW"
 )
 
+// options 中的字段在构造完成后视为只读，可安全并发使用。
 type options struct {
 	keyOptions []key.Option
 
-	marshalMode   PointMarshalMode
-	splicingOrder CiphertextSplicingOrder
-	hashType      HashType
+	marshalMode     PointMarshalMode
+	splicingOrder   CiphertextSplicingOrder
+	signatureFormat SignatureFormat
+	uid             []byte
 
 	format standard.IFormat
 }
@@ -58,9 +58,17 @@ func WithSplicingOrder(splicingOrder CiphertextSplicingOrder) Option {
 	}
 }
 
-func WithHashType(hashType HashType) Option {
+// WithSignatureFormat 设置签名输出格式（DER 或 RAW）。
+func WithSignatureFormat(signatureFormat SignatureFormat) Option {
 	return func(o *options) {
-		o.hashType = hashType
+		o.signatureFormat = signatureFormat
+	}
+}
+
+// WithUID 设置 SM2 用户标识（ZA 计算用）。为空时使用默认值 1234567812345678。
+func WithUID(uid []byte) Option {
+	return func(o *options) {
+		o.uid = append([]byte(nil), uid...)
 	}
 }
 

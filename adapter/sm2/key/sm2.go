@@ -6,28 +6,47 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"strings"
 
 	gsm2 "github.com/emmansun/gmsm/sm2"
 	"github.com/emmansun/gmsm/smx509"
+	"github.com/x-thooh/encryption/standard"
 )
 
+// SM2 SM2 密钥生成与解析。
+//
+// 解析结果按原始字符串缓存。options 在构造后只读，SM2 可并发使用。
 type SM2 struct {
 	o *options
+
+	pubCache *keyCache
+	priCache *keyCache
 }
 
 func NewSM2(opts ...Option) *SM2 {
 	o := &options{
-		PcksType: Pcks8,
+		PcksType:   Pcks8,
+		cacheLimit: 1024,
 	}
 	for _, opt := range opts {
 		opt(o)
 	}
-	return &SM2{o: o}
+	s := &SM2{o: o}
+	s.pubCache = newKeyCache(o.cacheLimit)
+	s.priCache = newKeyCache(o.cacheLimit)
+	return s
 }
 
 func (s *SM2) Generate() (string, string, error) {
+	if s.o._type != "" && s.o._type != Base64 && s.o._type != Base64URL && s.o._type != Base64RawURL && s.o._type != Hex {
+		return "", "", fmt.Errorf("unsupported key type: %q", s.o._type)
+	}
+	if s.o.PcksType != Pcks1Ec && s.o.PcksType != Pcks8 {
+		return "", "", fmt.Errorf("invalid PcksType: %s", s.o.PcksType)
+	}
+
 	pri, err := gsm2.GenerateKey(rand.Reader)
 	if err != nil {
 		return "", "", err
@@ -46,22 +65,23 @@ func (s *SM2) Generate() (string, string, error) {
 	switch s.o.PcksType {
 	case Pcks1Ec:
 		priBs, err = smx509.MarshalSM2PrivateKey(pri)
-		if err != nil {
-			return "", "", err
-		}
 	case Pcks8:
 		priBs, err = smx509.MarshalPKCS8PrivateKey(pri)
-		if err != nil {
-			return "", "", err
-		}
-	default:
-		return "", "", fmt.Errorf("invalid PcksType: %s", s.o.PcksType)
+	}
+	if err != nil {
+		return "", "", err
 	}
 
 	switch s.o._type {
 	case Base64:
 		priStr = base64.StdEncoding.EncodeToString(priBs)
 		pubStr = base64.StdEncoding.EncodeToString(pubBs)
+	case Base64URL:
+		priStr = base64.URLEncoding.EncodeToString(priBs)
+		pubStr = base64.URLEncoding.EncodeToString(pubBs)
+	case Base64RawURL:
+		priStr = base64.RawURLEncoding.EncodeToString(priBs)
+		pubStr = base64.RawURLEncoding.EncodeToString(pubBs)
 	case Hex:
 		priStr = hex.EncodeToString(priBs)
 		pubStr = hex.EncodeToString(pubBs)
@@ -77,8 +97,6 @@ func (s *SM2) Generate() (string, string, error) {
 				Type:  "PRIVATE KEY",
 				Bytes: priBs,
 			}))
-		default:
-			return "", "", fmt.Errorf("invalid PcksType: %s", s.o.PcksType)
 		}
 		pubStr = string(pem.EncodeToMemory(&pem.Block{
 			Type:  "PUBLIC KEY",
@@ -86,124 +104,142 @@ func (s *SM2) Generate() (string, string, error) {
 		}))
 	}
 	return pubStr, priStr, nil
-
 }
 
+// ParsePublicKey 解析 SM2 公钥，支持 PKIX 与未压缩/压缩裸公钥。
 func (s *SM2) ParsePublicKey(pubKey string) (*ecdsa.PublicKey, error) {
-	var data []byte
-	switch s.o._type {
-	case Base64:
-		decodeString, err := base64.StdEncoding.DecodeString(pubKey)
-		if err != nil {
-			return nil, err
-		}
-		data = decodeString
-	case Hex:
-		decodeString, err := hex.DecodeString(pubKey)
-		if err != nil {
-			return nil, err
-		}
-		data = decodeString
-	case Binary:
-		data = []byte(pubKey)
-	default:
-		if !strings.Contains(pubKey, "PUBLIC KEY") {
-			return nil, fmt.Errorf("unsupported key type: %s", s.o._type)
-		}
-		block, _ := pem.Decode([]byte(pubKey))
-		if block == nil {
-			return nil, fmt.Errorf("invalid PEM")
-		}
-		data = block.Bytes
-		s.o.PcksType = Pcks8
-		if strings.Contains(pubKey, "EC") {
-			s.o.PcksType = Pcks1Ec
-		}
+	if v, ok := s.pubCache.Load(pubKey); ok {
+		return v.(*ecdsa.PublicKey), nil
 	}
-	switch {
-	case isSubjectPublicKeyInfo(data): // 咩有EC PUBLIC KEY
-		key, err := smx509.ParsePKIXPublicKey(data)
-		if err != nil {
-			return nil, err
-		}
-		return key.(*ecdsa.PublicKey), nil
+
+	enc, err := decodeSM2Key(pubKey, s.o._type)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", standard.ErrInvalidKey, err)
 	}
-	return gsm2.ParseUncompressedPublicKey(data)
+
+	if pub, err := smx509.ParsePKIXPublicKey(enc.data); err == nil {
+		ec, ok := pub.(*ecdsa.PublicKey)
+		if !ok {
+			return nil, fmt.Errorf("%w: not an EC public key: %T", standard.ErrInvalidKey, pub)
+		}
+		s.pubCache.Store(pubKey, ec)
+		return ec, nil
+	}
+
+	ec, err := gsm2.ParseUncompressedPublicKey(enc.data)
+	if err != nil {
+		return nil, fmt.Errorf("%w: parse SM2 public key: %w", standard.ErrInvalidKey, err)
+	}
+	s.pubCache.Store(pubKey, ec)
+	return ec, nil
 }
 
+// ParsePrivateKey 解析 SM2 私钥，支持 PKCS#8、EC PRIVATE KEY(PKCS#1) 与裸私钥。
 func (s *SM2) ParsePrivateKey(priKey string) (*gsm2.PrivateKey, error) {
-	var data []byte
-	switch s.o._type {
+	if v, ok := s.priCache.Load(priKey); ok {
+		return v.(*gsm2.PrivateKey), nil
+	}
+
+	enc, err := decodeSM2Key(priKey, s.o._type)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", standard.ErrInvalidKey, err)
+	}
+
+	// PEM 的块类型优先；裸数据则使用显式选项。
+	pkcs1EC := enc.pkcs1EC || (s.o.PcksType == Pcks1Ec && !enc.fromPEM)
+
+	if pkcs1EC {
+		if k, err := smx509.ParseSM2PrivateKey(enc.data); err == nil {
+			s.priCache.Store(priKey, k)
+			return k, nil
+		}
+	}
+
+	if k, err := smx509.ParsePKCS8PrivateKey(enc.data); err == nil {
+		sm2Key, ok := k.(*gsm2.PrivateKey)
+		if !ok {
+			return nil, fmt.Errorf("%w: not an SM2 private key: %T", standard.ErrInvalidKey, k)
+		}
+		s.priCache.Store(priKey, sm2Key)
+		return sm2Key, nil
+	}
+
+	if !pkcs1EC {
+		if k, err := smx509.ParseSM2PrivateKey(enc.data); err == nil {
+			s.priCache.Store(priKey, k)
+			return k, nil
+		}
+	}
+
+	k, err := gsm2.ParseRawPrivateKey(enc.data)
+	if err != nil {
+		return nil, fmt.Errorf("%w: parse SM2 private key: %w", standard.ErrInvalidKey, err)
+	}
+	s.priCache.Store(priKey, k)
+	return k, nil
+}
+
+type sm2EncodedKey struct {
+	data    []byte
+	pkcs1EC bool
+	fromPEM bool
+}
+
+func decodeSM2Key(raw string, typ Type) (sm2EncodedKey, error) {
+	switch typ {
 	case Base64:
-		decodeString, err := base64.StdEncoding.DecodeString(priKey)
+		data, err := base64.StdEncoding.DecodeString(raw)
 		if err != nil {
-			return nil, err
+			return sm2EncodedKey{}, err
 		}
-		data = decodeString
+		if len(data) == 0 {
+			return sm2EncodedKey{}, errors.New("empty key data")
+		}
+		return sm2EncodedKey{data: data}, nil
+	case Base64URL:
+		data, err := base64.URLEncoding.DecodeString(raw)
+		if err != nil {
+			return sm2EncodedKey{}, err
+		}
+		if len(data) == 0 {
+			return sm2EncodedKey{}, errors.New("empty key data")
+		}
+		return sm2EncodedKey{data: data}, nil
+	case Base64RawURL:
+		data, err := base64.RawURLEncoding.DecodeString(raw)
+		if err != nil {
+			return sm2EncodedKey{}, err
+		}
+		if len(data) == 0 {
+			return sm2EncodedKey{}, errors.New("empty key data")
+		}
+		return sm2EncodedKey{data: data}, nil
 	case Hex:
-		decodeString, err := hex.DecodeString(priKey)
+		data, err := hex.DecodeString(raw)
 		if err != nil {
-			return nil, err
+			return sm2EncodedKey{}, err
 		}
-		data = decodeString
+		if len(data) == 0 {
+			return sm2EncodedKey{}, errors.New("empty key data")
+		}
+		return sm2EncodedKey{data: data}, nil
 	case Binary:
-		data = []byte(priKey)
-	default:
-		if !strings.Contains(priKey, "PRIVATE KEY") {
-			return nil, fmt.Errorf("unsupported key type: %s", s.o._type)
+		if len(raw) == 0 {
+			return sm2EncodedKey{}, errors.New("empty key data")
 		}
-		block, _ := pem.Decode([]byte(priKey))
+		return sm2EncodedKey{data: []byte(raw)}, nil
+	case "":
+		block, _ := pem.Decode([]byte(raw))
 		if block == nil {
-			return nil, fmt.Errorf("invalid PEM")
+			return sm2EncodedKey{}, errors.New("failed to parse PEM block")
 		}
-		data = block.Bytes
-		s.o.PcksType = Pcks8
-		if strings.Contains(priKey, "EC") {
-			s.o.PcksType = Pcks1Ec
-		}
-	}
-
-	switch {
-	// EC PRIVATE KEY (PKCS#1)
-	case s.o.PcksType == Pcks1Ec:
-		key, err := smx509.ParseSM2PrivateKey(data)
-		if err != nil {
-			return nil, err
-		}
-		return key, nil
-		// PRIVATE KEY (PKCS#8)
-	case s.o.PcksType == Pcks8, isPkcs8PrivateKey(data):
-		key, err := smx509.ParsePKCS8PrivateKey(data)
-		if err != nil {
-			return nil, err
-		}
-		return key.(*gsm2.PrivateKey), nil
+		// "EC PRIVATE KEY" 为 SEC1/PKCS#1 结构；"PRIVATE KEY" 为 PKCS#8。
+		return sm2EncodedKey{
+			data:    block.Bytes,
+			pkcs1EC: strings.Contains(block.Type, "EC"),
+			fromPEM: true,
+		}, nil
 	default:
-		return gsm2.ParseRawPrivateKey(data)
+		return sm2EncodedKey{}, fmt.Errorf("unsupported key type: %q", typ)
 	}
-}
-
-// PRIVATE KEY (PKCS#8)
-func isPkcs8PrivateKey(data []byte) bool {
-	return data[0] == 0x30 && data[2] == 0x02 && data[3] == 0x01 &&
-		data[4] == 0x00 && data[5] == 0x30
-}
-
-// EC PRIVATE KEY (PKCS#1)
-func isPkcs1EcPrivateKey(data []byte) bool {
-	return data[0] == 0x30 && data[2] == 0x02 && data[3] == 0x01 &&
-		data[4] == 0x01 && data[5] == 0x04
-}
-
-// isSubjectPublicKeyInfo 判断是否为 X.509 公钥 (PUBLIC KEY)
-func isSubjectPublicKeyInfo(data []byte) bool {
-	// 公钥结构: 30 xx 30 xx 06 07 2A 86 48 CE 3D 02 01 ... 03 ...
-	if len(data) < 12 {
-		return false
-	}
-	// 30 .. 30 .. 06 07 2A 86 48 CE 3D 02 01（OID: ecPublicKey）
-	return data[0] == 0x30 &&
-		data[2] == 0x30 &&
-		data[4] == 0x06 && data[5] == 0x07 &&
-		data[6] == 0x2A && data[7] == 0x86 && data[8] == 0x48 && data[9] == 0xCE && data[10] == 0x3D && data[11] == 0x02 && data[12] == 0x01
 }

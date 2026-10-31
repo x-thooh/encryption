@@ -1,17 +1,14 @@
 package sm2
 
 import (
-	"crypto/md5"
 	"crypto/rand"
-	"crypto/sha1"
-	"crypto/sha256"
 	"encoding/asn1"
 	"fmt"
 	"math/big"
 
 	gsm2 "github.com/emmansun/gmsm/sm2"
 	"github.com/x-thooh/encryption/adapter/sm2/key"
-	"github.com/x-thooh/encryption/pkg/format"
+	"github.com/x-thooh/encryption/format"
 	"github.com/x-thooh/encryption/standard"
 )
 
@@ -33,10 +30,9 @@ func NewSM2(
 	opts ...Option,
 ) standard.IEncryptSign {
 	o := &options{
-
-		marshalMode:   MarshalUncompressed,
-		splicingOrder: C1C2C3,
-		hashType:      SM3,
+		marshalMode:     MarshalUncompressed,
+		splicingOrder:   C1C2C3,
+		signatureFormat: SignatureDER,
 
 		format: format.NewBase64(),
 	}
@@ -58,7 +54,7 @@ func (s *sm2) Encrypt(origData []byte) (string, error) {
 	}
 	encrypt, err := gsm2.Encrypt(rand.Reader, publicKey, origData, s.getEncrypterOpts(s.o.marshalMode, s.o.splicingOrder))
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("%w: %w", standard.ErrEncrypt, err)
 	}
 	return s.o.format.EncodeToString(encrypt), nil
 }
@@ -70,46 +66,93 @@ func (s *sm2) Decrypt(ciphertext string) ([]byte, error) {
 	}
 	encrypt, err := s.o.format.DecodeString(ciphertext)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: %w", standard.ErrInvalidCiphertext, err)
 	}
-	// return gsm2.Decrypt(privateKey, encrypt)
-	return privateKey.Decrypt(rand.Reader, encrypt, s.getDecrypterOpts(s.o.marshalMode, s.o.splicingOrder))
+	plain, err := privateKey.Decrypt(rand.Reader, encrypt, s.getDecrypterOpts(s.o.splicingOrder))
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", standard.ErrDecrypt, err)
+	}
+	return plain, nil
 }
 
+// Sign 按 GB/T 32918.2-2016 对原文签名：计算 ZA，再做 SM3，最后执行 SM2 签名。
 func (s *sm2) Sign(plainText []byte) (string, error) {
 	privateKey, err := s.key.ParsePrivateKey(s.priKey)
 	if err != nil {
 		return "", err
 	}
-	ir, is, err := gsm2.Sign(rand.Reader, &privateKey.PrivateKey, s.toHash(plainText))
+
+	digest, err := gsm2.CalculateSM2Hash(&privateKey.PublicKey, plainText, s.o.uid)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("%w: %w", standard.ErrSign, err)
 	}
-	sigDER, err := asn1.Marshal(sm2Signature{R: ir, S: is})
+	r, ss, err := gsm2.Sign(rand.Reader, &privateKey.PrivateKey, digest)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("%w: %w", standard.ErrSign, err)
 	}
-	return s.o.format.EncodeToString(sigDER), nil
+
+	switch s.o.signatureFormat {
+	case SignatureDER, "":
+		sigDER, err := asn1.Marshal(sm2Signature{R: r, S: ss})
+		if err != nil {
+			return "", fmt.Errorf("%w: %w", standard.ErrSign, err)
+		}
+		return s.o.format.EncodeToString(sigDER), nil
+	case SignatureRaw:
+		sig := make([]byte, 64)
+		r.FillBytes(sig[:32])
+		ss.FillBytes(sig[32:])
+		return s.o.format.EncodeToString(sig), nil
+	default:
+		return "", fmt.Errorf("%w: unsupported signature format: %s", standard.ErrSign, s.o.signatureFormat)
+	}
 }
 
-func (s *sm2) Verify(plainText []byte, signatureB64 string) error {
+// Verify 验证 GB/T 32918.2-2016 签名。
+func (s *sm2) Verify(plainText []byte, signature string) error {
 	publicKey, err := s.key.ParsePublicKey(s.pubKey)
 	if err != nil {
 		return err
 	}
-	base64Sig, err := s.o.format.DecodeString(signatureB64)
+
+	sig, err := s.o.format.DecodeString(signature)
 	if err != nil {
-		return err
+		return fmt.Errorf("%w: %w", standard.ErrInvalidCiphertext, err)
 	}
-	ss := &sm2Signature{}
-	_, err = asn1.Unmarshal(base64Sig, ss)
+
+	var r, ss *big.Int
+	switch s.o.signatureFormat {
+	case SignatureDER, "":
+		parsed := &sm2Signature{}
+		rest, err := asn1.Unmarshal(sig, parsed)
+		if err != nil {
+			return fmt.Errorf("%w: parse SM2 signature: %w", standard.ErrInvalidCiphertext, err)
+		}
+		if len(rest) != 0 {
+			return fmt.Errorf("%w: invalid SM2 signature: trailing data", standard.ErrInvalidCiphertext)
+		}
+		if parsed.R == nil || parsed.S == nil {
+			return fmt.Errorf("%w: invalid SM2 signature", standard.ErrInvalidCiphertext)
+		}
+		r, ss = parsed.R, parsed.S
+	case SignatureRaw:
+		if len(sig) != 64 {
+			return fmt.Errorf("%w: invalid SM2 raw signature length: got %d, want 64", standard.ErrInvalidCiphertext, len(sig))
+		}
+		r = new(big.Int).SetBytes(sig[:32])
+		ss = new(big.Int).SetBytes(sig[32:])
+	default:
+		return fmt.Errorf("%w: unsupported signature format: %s", standard.ErrVerification, s.o.signatureFormat)
+	}
+
+	digest, err := gsm2.CalculateSM2Hash(publicKey, plainText, s.o.uid)
 	if err != nil {
-		return err
+		return fmt.Errorf("%w: %w", standard.ErrVerification, err)
 	}
-	if gsm2.Verify(publicKey, s.toHash(plainText), ss.R, ss.S) {
-		return nil
+	if !gsm2.Verify(publicKey, digest, r, ss) {
+		return fmt.Errorf("%w: signature mismatch", standard.ErrVerification)
 	}
-	return fmt.Errorf("verification error")
+	return nil
 }
 
 func (s *sm2) getEncrypterOpts(marshalMode PointMarshalMode, splicingOrder CiphertextSplicingOrder) *gsm2.EncrypterOpts {
@@ -139,35 +182,14 @@ func (s *sm2) getEncrypterOpts(marshalMode PointMarshalMode, splicingOrder Ciphe
 			return gsm2.NewPlainEncrypterOpts(2, 1)
 		}
 	}
-	return gsm2.NewPlainEncrypterOpts(0, 0)
+	return gsm2.NewPlainEncrypterOpts(1, 1)
 }
 
-func (s *sm2) getDecrypterOpts(marshalMode PointMarshalMode, splicingOrder CiphertextSplicingOrder) *gsm2.DecrypterOpts {
+func (s *sm2) getDecrypterOpts(splicingOrder CiphertextSplicingOrder) *gsm2.DecrypterOpts {
 	switch splicingOrder {
 	case C1C3C2:
 		return gsm2.NewPlainDecrypterOpts(0)
-	case C1C2C3:
-		return gsm2.NewPlainDecrypterOpts(1)
 	default:
 		return gsm2.NewPlainDecrypterOpts(1)
-	}
-}
-
-func (s *sm2) toHash(data []byte) []byte {
-	switch s.o.hashType {
-	case MD5:
-		return md5.New().Sum(data)
-	case SHA1:
-		return sha1.New().Sum(data)
-	case SHA256:
-		return sha256.New().Sum(data)
-	case SHA384:
-		return sha256.New().Sum(data)
-	case SHA512:
-		return sha256.New().Sum(data)
-	case SM3:
-		fallthrough
-	default:
-		return data
 	}
 }
