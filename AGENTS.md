@@ -43,18 +43,18 @@ CGO_ENABLED=0 go test -tags gmssl -run NoCGO ./adapter/sm4 ./adapter/sm2  # 错�
 
 | 包 | 覆盖率 |
 |---|---|
-| 根包 `encryption` | ~84% |
-| `adapter/aes` | ~98% |
-| `adapter/chacha20poly1305` | ~98% |
-| `adapter/rsa` | ~85% |
-| `adapter/rsa/key` | ~88% |
-| `adapter/sm2` | ~96% |
-| `adapter/sm2/key` | ~90% |
-| `adapter/sm4` | ~97% |
+| 根包 `encryption` | 100% |
+| `adapter/aes` | 100% |
+| `adapter/chacha20poly1305` | 100% |
+| `adapter/rsa` | ~99% |
+| `adapter/rsa/key` | 100% |
+| `adapter/sm2` | 100% |
+| `adapter/sm2/key` | 100% |
+| `adapter/sm4` | 100% |
 | `format` | 100% |
-| `padding` | ~95% |
+| `padding` | 100% |
 
-`adapter/aes` / `adapter/sm4` 不再是 100%：模式实现合并进 adapter 后，`crypto/rand` 失败、`cipher.NewGCM` 初始化失败、CCM CBC-MAC 的二次长度校验等分支在正常输入下不可达，属于防御性代码。
+未覆盖语句必须登记在 `coverage-exceptions.txt` 并由 `scripts/check-coverage-exceptions.py` 双向校验（新增未覆盖会失败，例外过时也会失败）。当前只剩 3 条恒不成立的 RSA 防御分支。
 
 ## 3. 目录结构
 
@@ -258,6 +258,7 @@ go test -run '^$' -fuzz=FuzzParseCiphertextNoPanic -fuzztime=10s ./adapter/sm2
 - [ ] `TEST_REPORT.md` 已更新（覆盖率、双后端结果、fuzz、已知缺口）
 - [ ] `RELEASE_NOTES.md` / `RISK_REGISTER.md` 已按本次变更更新
 - [ ] `./scripts/verify.sh --coverage-gate scripts/coverage-baseline.txt` 通过
+- [ ] 新增代码后 `coverage-exceptions.txt` 未被扩大（或已补充理由）
 - [ ] 破坏性变更已写入 `README.md` 的“从旧版本迁移”并在本文件记录
 - [ ] 未引入新的数据触发 panic
 - [ ] 未在解析路径中修改共享状态

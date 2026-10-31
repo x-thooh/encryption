@@ -17,7 +17,7 @@
 | CGO 分支 | `docker build -f deploy/gmssl/Dockerfile --target test .` | ✅ 构建断言 + 全量测试通过 |
 | CGO 竞争检测 | 容器内 `go test -tags gmssl -race ./...` | ✅ 通过 |
 | 模糊测试 | 5 个 target × 5s | ✅ 全部通过（无新语料失败） |
-| 覆盖率 | `./scripts/verify.sh --coverage-gate scripts/coverage-baseline.txt` | ✅ 合计 **96.5%**，5 个包 100%，无包低于基线 |
+| 覆盖率 | `./scripts/verify.sh --coverage-gate scripts/coverage-baseline.txt` | ✅ 合计 **99.8%**，9/10 个包 100%，剩 3 条不可达语句受例外门禁校验 |
 | 后端互操作 | `adapter/sm2/backend_test.go` 双向固定向量 | ✅ 纯 Go ↔ GmSSL 互相能解、能验 |
 | 错配守卫 | `CGO_ENABLED=0 go test -tags gmssl -run NoCGO ./adapter/sm4 ./adapter/sm2` | ✅ 显式失败（CI job `cgo-disabled-guard`） |
 
@@ -39,32 +39,35 @@
 
 | 包 | 覆盖率 | 说明 |
 | --- | --- | --- |
-| 根包 `encryption` | 94.3% | 剩余为流式分帧的错误路径（需构造合法 AEAD 帧样本） |
-| `adapter/aes` | **100.0%** | 含 `newGCM` 注入、随机数失败、CFB 非法分段 |
+| 根包 `encryption` | **100.0%** | 门面全组合、ECC/ECB/CBC、流式帧的畸形/超长/未知类型/写失败 |
+| `adapter/aes` | **100.0%** | 含 `newGCM` 注入、随机数失败、CFB 非法分段、CCM 边界 |
 | `adapter/chacha20poly1305` | **100.0%** | 含随机 nonce 失败 |
-| `adapter/rsa` | 91.2% | 缺口集中在 OAEP 自定义解码分支（需构造精确长度的密文） |
-| `adapter/rsa/key` | 91.6% | 缺口为畸形 PEM 的细分类分支与不可达的 Marshal 失败 |
-| `adapter/sm2` | 98.8% | 仅剩「后端产出非规范形态」这一不可达分支 |
-| `adapter/sm2/key` | 92.8% | 同 rsa/key：畸形 PEM 细分类 + 不可达 Marshal 失败 |
+| `adapter/rsa` | 98.7% | 仅剩 3 条「恒不成立」的防御分支（见 §3.1） |
+| `adapter/rsa/key` | **100.0%** | 含畸形 PEM、类型不匹配、各编码分支、编码失败注入 |
+| `adapter/sm2` | **100.0%** | 含跨后端固定向量、后端失败注入、DER 缺字段 |
+| `adapter/sm2/key` | **100.0%** | 含 SEC1 兜底路径、类型不匹配、各编码分支 |
 | `adapter/sm4` | **100.0%** | 同 aes |
 | `format` | **100.0%** | |
-| `padding` | **100.0%** | 覆盖非法填充尾部、随机填充失败、对齐输入 |
-| **合计** | **96.5%** | 较上版 92.0% 提升 4.5pp |
+| `padding` | **100.0%** | |
+| **合计** | **99.8%** | 较上版 92.0% 提升 7.8pp |
 
-### 3.1 覆盖率缺口清单（67 语句）
+### 3.1 未覆盖语句：3 条，全部登记为例外
 
-| 文件 | 语句 | 性质 |
+| 位置 | 语句 | 为什么不可覆盖 |
 | --- | --- | --- |
-| `stream.go` | 21 | **可达**：分帧 AEAD 的畸形帧/超长帧/未知帧类型/写失败，需要构造合法 AEAD 帧样本 |
-| `adapter/rsa/oaep.go` | 13 | **可达**：OAEP 解码的恒定时间分支，需构造精确长度与哈希结构的密文 |
-| `adapter/rsa/key/rsa.go` | 12 | 混合：畸形 PEM 细分类（可达）+ `x509.Marshal*` 失败（不可达） |
-| `adapter/sm2/key/sm2.go` | 10 | 混合：同上 |
-| `adapter/rsa/pkcs.go` | 7 | 混合：`keySize <= 0`（不可达，已解析密钥的 N 恒 > 0）+ 分段边界 |
-| `adapter/sm2/sm2.go` | 2 | 1 可达（DER 缺字段）、1 不可达（后端返回非规范形态） |
-| `streamcrypt.go` | 1 | 可达：`padded` 未对齐（需自定义 padding） |
-| `adapter/rsa/pss.go` | 1 | 可达：验签分支 |
+| `adapter/rsa/oaep.go:270` | `if m.Cmp(pub.N) >= 0` | EM 首字节固定 0x00，因此 `m < 2^(8(k-1)) ≤ N`，条件恒假 |
+| `adapter/rsa/pkcs.go:85` | `if keySize <= 0` | 已解析私钥的 N 至少 1 位，`Size()` 恒 ≥ 1；保留它防除零 |
+| `adapter/rsa/pkcs.go:114` | `if err != nil`（Sign） | PKCS#1 v1.5 签名是确定性的，合法参数下 `SignPKCS1v15` 不会失败 |
 
-「不可达」= 只有内存被破坏或标准库返回不可能的失败时才会执行；保留这些检查是刻意的，不做删除。
+这些分支不是死代码：它们防的是「密钥结构被破坏」的极端情况，删掉会引入除零或静默失败。
+因此保留实现，用**例外门禁**把它们钉死：
+
+```bash
+python3 scripts/check-coverage-exceptions.py coverage.out coverage-exceptions.txt
+# ok   未覆盖语句 3 处（共 3 条语句），全部在例外清单内且理由已登记
+```
+
+规则两个方向都会失败：出现清单之外的未覆盖语句 → 失败；清单里的语句被覆盖了 → 也失败（说明例外过时）。
 
 ### 3.2 报告审计修正（上一版的问题）
 
@@ -132,6 +135,7 @@
 ./scripts/verify.sh                 # fmt / vet / lint / test / race / cover / 错配守卫 / fuzz
 ./scripts/verify.sh --docker        # 追加 GmSSL 镜像构建与容器内 -race
 ./scripts/verify.sh --coverage-gate scripts/coverage-baseline.txt
+python3 scripts/check-coverage-exceptions.py coverage.out coverage-exceptions.txt
 ```
 
 手工分步：

@@ -49,7 +49,7 @@ if err := info.Check(encryption.SMBackendGMSSL); err != nil {
 | 单元测试 | 10 个包全通过；`go test -race ./...` 通过 |
 | CGO 分支 | 容器内 `-tags gmssl` 全量 + `-race` 通过；`CgoFiles=[backend_gmssl.go]` 断言 |
 | 错配守卫 | `CGO_ENABLED=0 -tags gmssl` 显式报错（CI job `cgo-disabled-guard`） |
-| 覆盖率 | 合计 **96.5%**；`format` / `padding` / `adapter/aes` / `adapter/sm4` / `adapter/chacha20poly1305` 为 **100%** |
+| 覆盖率 | 合计 **99.8%**；10 个包中 9 个为 **100%**，剩 3 条不可达语句由 `coverage-exceptions.txt` 门禁校验 |
 | 静态检查 | `gofmt` 无输出、`go vet` 通过、`golangci-lint` **0 issues** |
 | 模糊测试 | 5 个 target（padding / CBC / GCM / CFB8 / SM2 密文解析）各 5s 通过 |
 
@@ -76,4 +76,4 @@ CGO_ENABLED=1 go build -tags gmssl ./...
 - CGO 后端只覆盖 SM4 与 SM2 的**原语**；SM3 / ZA、签名 DER 编解码、密钥解析仍在 Go 侧（这是跨后端互操作的前提）。
 - CGO 后端未做性能基准，不承诺比纯 Go 快（跨 cgo 每次分组都有调用开销）。
 - 未做与 OpenSSL/Tongsuo 等第三方实现的外部互操作测试；目前用标准向量 + 双后端固定向量校验。
-- 覆盖率未达 100%，缺口集中在 RSA OAEP 解码分支与流式帧错误路径（清单见 TEST_REPORT §3.1）。
+- 覆盖率为 99.8%：仅 RSA 的 3 条「恒不成立」防御分支未覆盖，已登记为例外并受门禁校验（见 TEST_REPORT §3.1）。
