@@ -2,6 +2,7 @@ package rsa
 
 import (
 	"bytes"
+	"encoding/base64"
 	"testing"
 
 	"github.com/x-thooh/encryption/adapter/rsa/key"
@@ -101,4 +102,37 @@ func Test_pkcs_Decrypt_hex_Sha256Sha1(t *testing.T) {
 		t.Fatalf("decrypt mismatch")
 	}
 	t.Logf("decrypt ok")
+}
+
+func Test_pkcs_Decrypt_InvalidCiphertextLength(t *testing.T) {
+	pub, pri, err := key.NewRSA().Generate()
+	if err != nil {
+		t.Fatalf("key err: %v", err)
+	}
+
+	p := NewPKCS(pub, pri)
+	bad := base64.StdEncoding.EncodeToString([]byte("short"))
+	if _, err := p.Decrypt(bad); err == nil {
+		t.Fatal("expected error for truncated ciphertext")
+	}
+}
+
+func Test_pkcs_Encrypt_Empty(t *testing.T) {
+	pub, pri, err := key.NewRSA().Generate()
+	if err != nil {
+		t.Fatalf("key err: %v", err)
+	}
+
+	p := NewPKCS(pub, pri)
+	cipherText, err := p.Encrypt(nil)
+	if err != nil {
+		t.Fatalf("encrypt empty: %v", err)
+	}
+	got, err := p.Decrypt(cipherText)
+	if err != nil {
+		t.Fatalf("decrypt empty: %v", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("expected empty plaintext, got %q", got)
+	}
 }

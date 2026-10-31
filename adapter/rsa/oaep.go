@@ -5,19 +5,19 @@ import (
 	crsa "crypto/rsa"
 	"crypto/sha1"
 	"crypto/sha256"
+	"crypto/subtle"
 	"errors"
 	"fmt"
 	"hash"
+	"io"
 	"math/big"
 
 	"github.com/x-thooh/encryption/adapter/rsa/key"
-	"github.com/x-thooh/encryption/pkg/format"
+	"github.com/x-thooh/encryption/format"
 	"github.com/x-thooh/encryption/standard"
 )
 
 type oaep struct {
-	// digest SHA-256
-	// mgf1 SHA-256
 	pubKey string
 	priKey string
 
@@ -53,26 +53,29 @@ func (r *oaep) Encrypt(plainBytes []byte) (string, error) {
 		return "", err
 	}
 
-	var h hash.Hash
 	switch r.o.digestMgf1 {
 	case Sha256Sha1:
 		cipherBytes, err := encryptSHA256MGF1SHA1(rsaPub, plainBytes)
 		if err != nil {
-			return "", err
+			return "", fmt.Errorf("%w: %w", standard.ErrEncrypt, err)
 		}
 		return r.o.format.EncodeToString(cipherBytes), nil
-	case Sha256Sha256:
-		h = sha256.New()
+	case Sha256Sha256, "":
+		ciphertext, err := crsa.EncryptOAEP(sha256.New(), rand.Reader, rsaPub, plainBytes, nil)
+		if err != nil {
+			return "", fmt.Errorf("%w: %w", standard.ErrEncrypt, err)
+		}
+		return r.o.format.EncodeToString(ciphertext), nil
 	case Sha1Sha1:
-		h = sha1.New()
+		// SHA-1 仅用于兼容旧系统。
+		ciphertext, err := crsa.EncryptOAEP(newSHA1Hash(), rand.Reader, rsaPub, plainBytes, nil)
+		if err != nil {
+			return "", fmt.Errorf("%w: %w", standard.ErrEncrypt, err)
+		}
+		return r.o.format.EncodeToString(ciphertext), nil
+	default:
+		return "", fmt.Errorf("%w: unsupported digest/mgf1 combination: %s", standard.ErrEncrypt, r.o.digestMgf1)
 	}
-
-	ciphertext, err := crsa.EncryptOAEP(h, rand.Reader, rsaPub, plainBytes, nil)
-	if err != nil {
-		return "", err
-	}
-
-	return r.o.format.EncodeToString(ciphertext), nil
 }
 
 // Decrypt 解密
@@ -82,174 +85,220 @@ func (r *oaep) Decrypt(cipherText string) ([]byte, error) {
 		return nil, err
 	}
 
-	// 解密
 	cipherBytes, err := r.o.format.DecodeString(cipherText)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: %w", standard.ErrInvalidCiphertext, err)
 	}
 
-	var h hash.Hash
 	switch r.o.digestMgf1 {
 	case Sha256Sha1:
-		plainText, err := decryptSHA256MGF1SHA1(rsaPri, cipherBytes)
+		plain, err := decryptSHA256MGF1SHA1(rsaPri, cipherBytes)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("%w: %w", standard.ErrDecrypt, err)
 		}
-		return plainText, nil
-	case Sha256Sha256:
-		h = sha256.New()
+		return plain, nil
+	case Sha256Sha256, "":
+		plain, err := crsa.DecryptOAEP(sha256.New(), rand.Reader, rsaPri, cipherBytes, nil)
+		if err != nil {
+			return nil, fmt.Errorf("%w: %w", standard.ErrDecrypt, err)
+		}
+		return plain, nil
 	case Sha1Sha1:
-		h = sha1.New()
+		// SHA-1 仅用于兼容旧系统。
+		plain, err := crsa.DecryptOAEP(newSHA1Hash(), rand.Reader, rsaPri, cipherBytes, nil)
+		if err != nil {
+			return nil, fmt.Errorf("%w: %w", standard.ErrDecrypt, err)
+		}
+		return plain, nil
+	default:
+		return nil, fmt.Errorf("%w: unsupported digest/mgf1 combination: %s", standard.ErrDecrypt, r.o.digestMgf1)
 	}
-
-	plainText, err := crsa.DecryptOAEP(h, rand.Reader, rsaPri, cipherBytes, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	return plainText, nil
 }
 
-// decryptSHA256MGF1SHA1 PaddingTypeOAEP 解密
+const oaepSHA256Len = sha256.Size
+
+// newSHA1Hash 返回 SHA-1 摘要，仅用于兼容旧系统的 OAEP 组合。
+func newSHA1Hash() hash.Hash {
+	//nolint:gosec // SHA-1 OAEP 为兼容既有系统所必需
+	// nosemgrep: go.lang.security.audit.crypto.use_of_weak_crypto.use-of-sha1
+	return sha1.New()
+}
+
+// decryptSHA256MGF1SHA1 实现 SHA-256 摘要 + MGF1-SHA1 的 OAEP 解密。
+//
+// 该组合不是 RFC 8017 的默认组合，stdlib 不支持，因此在此单独实现；
+// 私钥运算使用盲化（blinding），校验使用恒定时间比较。
 func decryptSHA256MGF1SHA1(pri *crsa.PrivateKey, cipherBytes []byte) ([]byte, error) {
 	k := (pri.N.BitLen() + 7) / 8
 	if len(cipherBytes) != k {
-		return nil, errors.New("cipher length does not match key size")
+		return nil, errors.New("decryption error: ciphertext length does not match key size")
 	}
 
+	em, err := rsaDecryptBlinded(pri, cipherBytes)
+	if err != nil {
+		return nil, err
+	}
+	return decodeOAEPWithMGF1SHA1(em, k)
+}
+
+// rsaDecryptBlinded 执行带盲化的 RSA 私钥运算，降低侧信道风险。
+func rsaDecryptBlinded(pri *crsa.PrivateKey, cipherBytes []byte) ([]byte, error) {
+	n := pri.N
 	c := new(big.Int).SetBytes(cipherBytes)
-	m := new(big.Int).Exp(c, pri.D, pri.N)
-	em := m.Bytes()
-
-	// 补齐长度
-	if len(em) < k {
-		pad := make([]byte, k-len(em))
-		em = append(pad, em...)
-	}
-
-	// PaddingTypeOAEP decode
-	hLen := 32 // SHA-256
-	if len(em) < 2*hLen+1 {
+	if c.Cmp(n) >= 0 {
 		return nil, errors.New("decryption error")
 	}
-	Y := em[0]
-	if Y != 0 {
+
+	e := big.NewInt(int64(pri.E))
+	upper := new(big.Int).Sub(n, big.NewInt(3)) // rand.Int 返回 [0, n-4)
+
+	var r, rInv *big.Int
+	for {
+		rr, err := rand.Int(rand.Reader, upper)
+		if err != nil {
+			return nil, err
+		}
+		rr.Add(rr, big.NewInt(2)) // [2, n-2]
+		rInv = new(big.Int).ModInverse(rr, n)
+		if rInv != nil {
+			r = rr
+			break
+		}
+	}
+
+	blinded := new(big.Int).Exp(r, e, n)
+	blinded.Mul(blinded, c)
+	blinded.Mod(blinded, n)
+
+	m := new(big.Int).Exp(blinded, pri.D, n)
+	m.Mul(m, rInv)
+	m.Mod(m, n)
+
+	out := make([]byte, (n.BitLen()+7)/8)
+	m.FillBytes(out)
+	return out, nil
+}
+
+func decodeOAEPWithMGF1SHA1(em []byte, k int) ([]byte, error) {
+	hLen := oaepSHA256Len
+	if len(em) != k || k < 2*hLen+2 {
 		return nil, errors.New("decryption error")
 	}
+	if subtle.ConstantTimeByteEq(em[0], 0) != 1 {
+		return nil, errors.New("decryption error")
+	}
+
 	maskedSeed := em[1 : 1+hLen]
 	maskedDB := em[1+hLen:]
 
 	seedMask := mgf1SHA1(maskedDB, hLen)
 	seed := make([]byte, hLen)
-	for i := 0; i < hLen; i++ {
-		seed[i] = maskedSeed[i] ^ seedMask[i]
-	}
+	subtle.XORBytes(seed, maskedSeed, seedMask)
 
 	dbMask := mgf1SHA1(seed, k-hLen-1)
-	DB := make([]byte, k-hLen-1)
-	for i := 0; i < len(DB); i++ {
-		DB[i] = maskedDB[i] ^ dbMask[i]
-	}
+	db := make([]byte, k-hLen-1)
+	subtle.XORBytes(db, maskedDB, dbMask)
 
-	// 去除 padding
-	lHash := sha256.Sum256([]byte{})
-	if !equal(DB[:hLen], lHash[:]) {
+	lHash := sha256.Sum256(nil)
+	if subtle.ConstantTimeCompare(db[:hLen], lHash[:]) != 1 {
 		return nil, errors.New("decryption error")
 	}
 
-	// 找到 0x01 之后的明文
-	i := hLen
-	for ; i < len(DB); i++ {
-		if DB[i] == 1 {
-			i++
-			break
-		} else if DB[i] != 0 {
-			return nil, errors.New("decryption error")
-		}
+	// 恒定时间查找 lHash 之后的 0x01 分隔符。
+	found := 0
+	index := 0
+	invalid := 0
+	for i := hLen; i < len(db); i++ {
+		b := db[i]
+		isOne := subtle.ConstantTimeByteEq(b, 1)
+		isZero := subtle.ConstantTimeByteEq(b, 0)
+
+		// 分隔符之前只允许 0x00 或 0x01。
+		invalid |= (1 - found) & (1 - (isOne | isZero))
+		take := (1 - found) & isOne
+		index = subtle.ConstantTimeSelect(take, i+1, index)
+		found |= isOne
+	}
+	invalid |= 1 - found
+	if invalid != 0 {
+		return nil, errors.New("decryption error")
 	}
 
-	return DB[i:], nil
+	return db[index:], nil
 }
 
-// encryptSHA256MGF1SHA1 PaddingTypeOAEP 加密
+// encryptSHA256MGF1SHA1 实现 SHA-256 摘要 + MGF1-SHA1 的 OAEP 加密。
 func encryptSHA256MGF1SHA1(pub *crsa.PublicKey, plainBytes []byte) ([]byte, error) {
 	k := (pub.N.BitLen() + 7) / 8
-	hLen := 32 // SHA-256
+	hLen := oaepSHA256Len
+	if k < 2*hLen+2 {
+		return nil, errors.New("RSA key too small for OAEP-SHA256")
+	}
 	maxMsgLen := k - 2*hLen - 2
-
 	if len(plainBytes) > maxMsgLen {
 		return nil, fmt.Errorf("message too long: %d > %d", len(plainBytes), maxMsgLen)
 	}
 
-	// 计算 lHash (空标签的 SHA-256)
-	lHash := sha256.Sum256([]byte{})
+	// DB = lHash || PS || 0x01 || M
+	db := make([]byte, k-hLen-1)
+	lHash := sha256.Sum256(nil)
+	copy(db, lHash[:])
+	sep := hLen + maxMsgLen - len(plainBytes)
+	db[sep] = 0x01
+	copy(db[sep+1:], plainBytes)
 
-	// 构造 DB = lHash || PS || 0x01 || M
-	PS := make([]byte, maxMsgLen-len(plainBytes))
-	DB := make([]byte, 0, k-hLen-1)
-	DB = append(DB, lHash[:]...)
-	DB = append(DB, PS...)
-	DB = append(DB, 0x01)
-	DB = append(DB, plainBytes...)
-
-	// 生成随机种子
 	seed := make([]byte, hLen)
-	if _, err := rand.Read(seed); err != nil {
+	if _, err := io.ReadFull(rand.Reader, seed); err != nil {
 		return nil, err
 	}
 
-	// 生成 dbMask 和 maskedDB
-	dbMask := mgf1SHA1(seed, k-hLen-1)
-	maskedDB := make([]byte, len(DB))
-	for i := 0; i < len(DB); i++ {
-		maskedDB[i] = DB[i] ^ dbMask[i]
-	}
+	dbMask := mgf1SHA1(seed, len(db))
+	maskedDB := make([]byte, len(db))
+	subtle.XORBytes(maskedDB, db, dbMask)
 
-	// 生成 seedMask
 	seedMask := mgf1SHA1(maskedDB, hLen)
 	maskedSeed := make([]byte, hLen)
-	for i := 0; i < hLen; i++ {
-		maskedSeed[i] = seed[i] ^ seedMask[i]
-	}
+	subtle.XORBytes(maskedSeed, seed, seedMask)
 
-	// 构造 EM = 0x00 || maskedSeed || maskedDB
-	EM := make([]byte, k)
-	EM[0] = 0x00
-	copy(EM[1:], maskedSeed)
-	copy(EM[1+hLen:], maskedDB)
+	// EM = 0x00 || maskedSeed || maskedDB
+	em := make([]byte, k)
+	em[0] = 0x00
+	copy(em[1:], maskedSeed)
+	copy(em[1+hLen:], maskedDB)
 
-	// RSA 加密
-	m := new(big.Int).SetBytes(EM)
+	m := new(big.Int).SetBytes(em)
 	if m.Cmp(pub.N) >= 0 {
 		return nil, errors.New("message too long for RSA key size")
 	}
 
 	c := new(big.Int).Exp(m, big.NewInt(int64(pub.E)), pub.N)
 	cipherText := make([]byte, k)
-	return c.FillBytes(cipherText), nil
+	c.FillBytes(cipherText)
+	return cipherText, nil
 }
 
-func equal(a, b []byte) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
-}
-
-// mgf1 实现，SHA-1
+// mgf1SHA1 实现 RFC 8017 的 MGF1（SHA-1）。
 func mgf1SHA1(seed []byte, maskLen int) []byte {
-	hLen := 20 // SHA-1 output size
-	count := (maskLen + hLen - 1) / hLen
-	T := []byte{}
-	for i := 0; i < count; i++ {
-		c := []byte{byte(i >> 24), byte(i >> 16), byte(i >> 8), byte(i)}
-		h := sha1.Sum(append(seed, c...))
-		T = append(T, h[:]...)
+	const hLen = sha1.Size
+	if maskLen <= 0 {
+		return nil
 	}
-	return T[:maskLen]
+
+	count := (maskLen + hLen - 1) / hLen
+	out := make([]byte, 0, count*hLen)
+	buf := make([]byte, len(seed)+4)
+	copy(buf, seed)
+
+	for i := 0; i < count; i++ {
+		buf[len(seed)] = byte(i >> 24)
+		buf[len(seed)+1] = byte(i >> 16)
+		buf[len(seed)+2] = byte(i >> 8)
+		buf[len(seed)+3] = byte(i)
+		// SHA-1 仅用于兼容旧系统的 MGF1，不用于摘要。
+		//nolint:gosec // MGF1-SHA1 为兼容既有系统所必需
+		// nosemgrep: go.lang.security.audit.crypto.use_of_weak_crypto.use-of-sha1
+		sum := sha1.Sum(buf)
+		out = append(out, sum[:]...)
+	}
+	return out[:maskLen]
 }

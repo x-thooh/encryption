@@ -5,9 +5,10 @@ import (
 	"crypto/rand"
 	crsa "crypto/rsa"
 	"crypto/sha256"
+	"fmt"
 
 	"github.com/x-thooh/encryption/adapter/rsa/key"
-	"github.com/x-thooh/encryption/pkg/format"
+	"github.com/x-thooh/encryption/format"
 	"github.com/x-thooh/encryption/standard"
 )
 
@@ -18,6 +19,13 @@ type pss struct {
 	key *key.Rsa
 	o   *options
 }
+
+var (
+	// 签名使用 RFC 8017 推荐的 salt 长度（等于摘要长度），提升跨实现兼容性。
+	pssSignOpts = &crsa.PSSOptions{SaltLength: crsa.PSSSaltLengthEqualsHash, Hash: crypto.SHA256}
+	// 验签使用自动 salt 长度，兼容历史签名与其它实现。
+	pssVerifyOpts = &crsa.PSSOptions{SaltLength: crsa.PSSSaltLengthAuto, Hash: crypto.SHA256}
+)
 
 func NewPSS(
 	pubKeyPEM, priKeyPEM string,
@@ -45,9 +53,9 @@ func (p *pss) Sign(plainText []byte) (string, error) {
 	}
 
 	hash := sha256.Sum256(plainText)
-	signature, err := crsa.SignPSS(rand.Reader, rsaPri, crypto.SHA256, hash[:], nil)
+	signature, err := crsa.SignPSS(rand.Reader, rsaPri, crypto.SHA256, hash[:], pssSignOpts)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("%w: %w", standard.ErrSign, err)
 	}
 
 	return p.o.format.EncodeToString(signature), nil
@@ -61,9 +69,12 @@ func (p *pss) Verify(plainText []byte, signatureB64 string) error {
 	}
 	signature, err := p.o.format.DecodeString(signatureB64)
 	if err != nil {
-		return err
+		return fmt.Errorf("%w: %w", standard.ErrInvalidCiphertext, err)
 	}
 
 	h := sha256.Sum256(plainText)
-	return crsa.VerifyPSS(rsaPub, crypto.SHA256, h[:], signature, nil)
+	if err := crsa.VerifyPSS(rsaPub, crypto.SHA256, h[:], signature, pssVerifyOpts); err != nil {
+		return fmt.Errorf("%w: %w", standard.ErrVerification, err)
+	}
+	return nil
 }

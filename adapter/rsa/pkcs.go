@@ -6,9 +6,10 @@ import (
 	"crypto/rand"
 	crsa "crypto/rsa"
 	"crypto/sha256"
+	"fmt"
 
 	"github.com/x-thooh/encryption/adapter/rsa/key"
-	"github.com/x-thooh/encryption/pkg/format"
+	"github.com/x-thooh/encryption/format"
 	"github.com/x-thooh/encryption/standard"
 )
 
@@ -46,7 +47,10 @@ func (p *pcks) Encrypt(plainText []byte) (string, error) {
 		return "", err
 	}
 
-	keySize := rsaPub.N.BitLen()/8 - 11 // PaddingTypePKCS#1 v1.5 每块最大长度
+	keySize := rsaPub.Size() - 11 // PKCS#1 v1.5 每块最大明文长度
+	if keySize <= 0 {
+		return "", fmt.Errorf("%w: RSA key too small for PKCS#1 v1.5: %d bits", standard.ErrInvalidKey, rsaPub.N.BitLen())
+	}
 	buffer := bytes.Buffer{}
 
 	for start := 0; start < len(plainText); start += keySize {
@@ -56,7 +60,7 @@ func (p *pcks) Encrypt(plainText []byte) (string, error) {
 		}
 		block, err := crsa.EncryptPKCS1v15(rand.Reader, rsaPub, plainText[start:end])
 		if err != nil {
-			return "", err
+			return "", fmt.Errorf("%w: %w", standard.ErrEncrypt, err)
 		}
 		buffer.Write(block)
 	}
@@ -74,10 +78,16 @@ func (p *pcks) Decrypt(cipherB64 string) ([]byte, error) {
 	// 解密
 	cipherBytes, err := p.o.format.DecodeString(cipherB64)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: %w", standard.ErrInvalidCiphertext, err)
 	}
 
-	keySize := rsaPri.N.BitLen() / 8
+	keySize := rsaPri.Size()
+	if keySize <= 0 {
+		return nil, fmt.Errorf("%w: invalid RSA key size: %d bits", standard.ErrInvalidKey, rsaPri.N.BitLen())
+	}
+	if len(cipherBytes)%keySize != 0 {
+		return nil, fmt.Errorf("%w: ciphertext length %d is not a multiple of RSA key size %d", standard.ErrInvalidCiphertext, len(cipherBytes), keySize)
+	}
 	buffer := bytes.Buffer{}
 
 	for start := 0; start < len(cipherBytes); start += keySize {
@@ -87,7 +97,7 @@ func (p *pcks) Decrypt(cipherB64 string) ([]byte, error) {
 		}
 		block, err := crsa.DecryptPKCS1v15(rand.Reader, rsaPri, cipherBytes[start:end])
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("%w: %w", standard.ErrDecrypt, err)
 		}
 		buffer.Write(block)
 	}
@@ -105,7 +115,7 @@ func (p *pcks) Sign(plainText []byte) (string, error) {
 	h := sha256.Sum256(plainText)
 	signature, err := crsa.SignPKCS1v15(rand.Reader, rsaPri, crypto.SHA256, h[:])
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("%w: %w", standard.ErrSign, err)
 	}
 
 	return p.o.format.EncodeToString(signature), nil
@@ -119,9 +129,12 @@ func (p *pcks) Verify(plainText []byte, signatureB64 string) error {
 	}
 	signature, err := p.o.format.DecodeString(signatureB64)
 	if err != nil {
-		return err
+		return fmt.Errorf("%w: %w", standard.ErrInvalidCiphertext, err)
 	}
 
 	h := sha256.Sum256(plainText)
-	return crsa.VerifyPKCS1v15(rsaPub, crypto.SHA256, h[:], signature)
+	if err := crsa.VerifyPKCS1v15(rsaPub, crypto.SHA256, h[:], signature); err != nil {
+		return fmt.Errorf("%w: %w", standard.ErrVerification, err)
+	}
+	return nil
 }
