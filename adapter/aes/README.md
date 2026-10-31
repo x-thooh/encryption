@@ -1,5 +1,8 @@
 # AES
 
+
+> 实现范围：本项目当前实现 **ECB、CBC、CFB、CFB8、OFB、CTR、GCM**。
+
 ## 一、AES 简介
 
 AES（Advanced Encryption Standard）是一种对称加密算法，每次加密固定 128 bit（16 字节）数据块。  
