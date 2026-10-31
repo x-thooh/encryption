@@ -20,15 +20,26 @@ func TestNoCGOBackendReportsError(t *testing.T) {
 		t.Fatalf("Backend() = %q, want %q", got, wantDisabled)
 	}
 
-	if _, err := newBlock(make([]byte, 16)); err == nil {
-		t.Fatal("newBlock should fail without cgo")
+	block, err := newBlock(make([]byte, 16))
+	if err == nil {
+		t.Fatalf("newBlock should fail without cgo, got %T", block)
 	}
 
 	e := NewCBC([]byte("1234567890123456"), []byte("abcdefghijklmnop"))
-	if _, err := e.Encrypt([]byte("data")); !errors.Is(err, standard.ErrInvalidKey) {
+
+	cipherText, err := e.Encrypt([]byte("data"))
+	if !errors.Is(err, standard.ErrInvalidKey) {
 		t.Fatalf("Encrypt: got %v, want ErrInvalidKey", err)
 	}
-	if _, err := e.Decrypt("AAAA"); !errors.Is(err, standard.ErrInvalidKey) {
+	if cipherText != "" {
+		t.Fatalf("Encrypt must not produce output on failure, got %q", cipherText)
+	}
+
+	plain, err := e.Decrypt("AAAA")
+	if !errors.Is(err, standard.ErrInvalidKey) {
 		t.Fatalf("Decrypt: got %v, want ErrInvalidKey", err)
+	}
+	if plain != nil {
+		t.Fatalf("Decrypt must not produce output on failure, got %x", plain)
 	}
 }

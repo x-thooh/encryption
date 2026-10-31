@@ -65,11 +65,27 @@ func TestSM2ParseRawKeys(t *testing.T) {
 	_ = pemPub
 
 	p := key.NewSM2(key.WithType(key.Binary))
-	if _, err := p.ParsePrivateKey(string(rawPri)); err != nil {
+
+	pri, err := p.ParsePrivateKey(string(rawPri))
+	if err != nil {
 		t.Fatalf("parse raw private key: %v", err)
 	}
-	if _, err := p.ParsePublicKey(string(rawPub)); err != nil {
+	if pri == nil || pri.D == nil {
+		t.Fatal("parse raw private key returned empty key")
+	}
+	if pri.D.Cmp(parsed.D) != 0 {
+		t.Fatal("parsed private scalar mismatch")
+	}
+
+	pub, err := p.ParsePublicKey(string(rawPub))
+	if err != nil {
 		t.Fatalf("parse raw public key: %v", err)
+	}
+	if pub == nil || pub.X == nil || pub.Y == nil {
+		t.Fatal("parse raw public key returned empty key")
+	}
+	if pub.X.Cmp(parsed.X) != 0 || pub.Y.Cmp(parsed.Y) != 0 {
+		t.Fatal("parsed public point mismatch")
 	}
 }
 
@@ -93,22 +109,41 @@ func TestSM2ParseInvalid(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			p := key.NewSM2(tt.opts...)
-			// 只要求返回 error，不允许 panic。
-			if _, err := p.ParsePublicKey(tt.data); !errors.Is(err, standard.ErrInvalidKey) {
+
+			// 失败时必须返回哨兵错误，且不返回半成品密钥。
+			pub, err := p.ParsePublicKey(tt.data)
+			if !errors.Is(err, standard.ErrInvalidKey) {
 				t.Fatalf("public: expected ErrInvalidKey, got %v", err)
 			}
-			if _, err := p.ParsePrivateKey(tt.data); !errors.Is(err, standard.ErrInvalidKey) {
+			if pub != nil {
+				t.Fatalf("public: got non-nil key on failure: %+v", pub)
+			}
+
+			pri, err := p.ParsePrivateKey(tt.data)
+			if !errors.Is(err, standard.ErrInvalidKey) {
 				t.Fatalf("private: expected ErrInvalidKey, got %v", err)
+			}
+			if pri != nil {
+				t.Fatalf("private: got non-nil key on failure: %+v", pri)
 			}
 		})
 	}
 }
 
 func TestSM2GenerateInvalidOptions(t *testing.T) {
-	if _, _, err := key.NewSM2(key.WithType(key.Type("unknown"))).Generate(); err == nil {
+	pub, pri, err := key.NewSM2(key.WithType(key.Type("unknown"))).Generate()
+	if err == nil {
 		t.Fatal("expected error for unknown key type")
 	}
-	if _, _, err := key.NewSM2(key.WithPcksType(key.PcksType("unknown"))).Generate(); err == nil {
+	if pub != "" || pri != "" {
+		t.Fatalf("failed Generate must return empty keys, got pub=%q pri=%q", pub, pri)
+	}
+
+	pub, pri, err = key.NewSM2(key.WithPcksType(key.PcksType("unknown"))).Generate()
+	if err == nil {
 		t.Fatal("expected error for unknown pcks type")
+	}
+	if pub != "" || pri != "" {
+		t.Fatalf("failed Generate must return empty keys, got pub=%q pri=%q", pub, pri)
 	}
 }

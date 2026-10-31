@@ -27,14 +27,28 @@ func TestNoCGOBackendReportsError(t *testing.T) {
 		WithFormat(format.NewHex()),
 	)
 
-	if _, err := s.Encrypt([]byte(fixtureMsg)); !errors.Is(err, standard.ErrEncrypt) {
+	cipherText, err := s.Encrypt([]byte(fixtureMsg))
+	if !errors.Is(err, standard.ErrEncrypt) {
 		t.Fatalf("Encrypt: got %v, want ErrEncrypt", err)
 	}
-	if _, err := s.Decrypt(fixturePureGoCT); !errors.Is(err, standard.ErrDecrypt) {
+	if cipherText != "" {
+		t.Fatalf("Encrypt must not produce output on failure, got %q", cipherText)
+	}
+
+	plain, err := s.Decrypt(fixturePureGoCT)
+	if !errors.Is(err, standard.ErrDecrypt) {
 		t.Fatalf("Decrypt: got %v, want ErrDecrypt", err)
 	}
-	if _, err := s.Sign([]byte(fixtureMsg)); !errors.Is(err, standard.ErrSign) {
+	if plain != nil {
+		t.Fatalf("Decrypt must not produce output on failure, got %x", plain)
+	}
+
+	sig, err := s.Sign([]byte(fixtureMsg))
+	if !errors.Is(err, standard.ErrSign) {
 		t.Fatalf("Sign: got %v, want ErrSign", err)
+	}
+	if sig != "" {
+		t.Fatalf("Sign must not produce output on failure, got %q", sig)
 	}
 	if err := s.Verify([]byte(fixtureMsg), fixturePureGoSig); !errors.Is(err, standard.ErrVerification) {
 		t.Fatalf("Verify: got %v, want ErrVerification", err)
