@@ -74,6 +74,11 @@ func (p *ciphertextParts) canonical() []byte {
 
 // marshal 按调用方要求的点压缩模式与拼接顺序重新编码。
 func (p *ciphertextParts) marshal(mode PointMarshalMode, order CiphertextSplicingOrder) ([]byte, error) {
+	// 先自行校验曲线点：stdlib 的 elliptic.Marshal / MarshalCompressed 对非法点在
+	// 新版本里会 panic，不能把未经校验的 parts 直接交给它。
+	if p.x == nil || p.y == nil || !sm2Curve().IsOnCurve(p.x, p.y) {
+		return nil, errors.New("sm2: invalid C1 point")
+	}
 	curve := sm2Curve()
 
 	var c1 []byte
@@ -82,18 +87,12 @@ func (p *ciphertextParts) marshal(mode PointMarshalMode, order CiphertextSplicin
 		c1 = elliptic.MarshalCompressed(curve, p.x, p.y)
 	case MarshalHybrid:
 		c1 = elliptic.Marshal(curve, p.x, p.y)
-		if c1 == nil {
-			return nil, errors.New("sm2: invalid C1 point")
-		}
 		// 与 gmsm 一致：混合模式前缀 0x06 | y 的最低位。
 		c1[0] = byte(p.y.Bit(0)) | pointHybrid06
 	case MarshalUncompressed:
 		c1 = elliptic.Marshal(curve, p.x, p.y)
 	default:
 		return nil, fmt.Errorf("sm2: unsupported marshal mode: %d", mode)
-	}
-	if c1 == nil {
-		return nil, errors.New("sm2: invalid C1 point")
 	}
 
 	out := make([]byte, 0, len(c1)+sm2C3Size+len(p.c2))
