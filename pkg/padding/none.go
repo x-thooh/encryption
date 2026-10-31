@@ -15,9 +15,11 @@ func (i *none) Name() standard.PaddingType {
 	return standard.PaddingTypeNONE
 }
 
-// Padding 填充
+// Padding 不做填充，但返回新切片，避免与调用方共享底层数组。
 func (i *none) Padding(data []byte, _ int) ([]byte, error) {
-	return data, nil
+	out := make([]byte, len(data))
+	copy(out, data)
+	return out, nil
 }
 
 // UnPadding 去填充

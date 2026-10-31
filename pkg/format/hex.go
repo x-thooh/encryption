@@ -1,7 +1,6 @@
 package format
 
 import (
-	"encoding/base64"
 	"encoding/hex"
 
 	"github.com/x-thooh/encryption/standard"
@@ -18,5 +17,5 @@ func (b *xhex) DecodeString(s string) ([]byte, error) {
 }
 
 func (b *xhex) EncodeToString(src []byte) string {
-	return base64.StdEncoding.EncodeToString(src)
+	return hex.EncodeToString(src)
 }

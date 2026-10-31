@@ -1,7 +1,6 @@
 package padding
 
 import (
-	"bytes"
 	"fmt"
 
 	"github.com/x-thooh/encryption/standard"
@@ -24,19 +23,31 @@ func (p *pkcs5) Padding(data []byte, blockSize int) ([]byte, error) {
 		return nil, fmt.Errorf("invalid block size")
 	}
 	padding := blockSize - len(data)%blockSize
-	padText := bytes.Repeat([]byte{byte(padding)}, padding)
-	return append(data, padText...), nil
+	out := make([]byte, len(data)+padding)
+	copy(out, data)
+	for i := len(data); i < len(out); i++ {
+		out[i] = byte(padding)
+	}
+	return out, nil
 }
 
 // UnPadding 去填充
 func (p *pkcs5) UnPadding(data []byte, blockSize int) ([]byte, error) {
+	if blockSize <= 0 {
+		return nil, fmt.Errorf("invalid block size")
+	}
 	length := len(data)
 	if length == 0 || length%blockSize != 0 {
 		return nil, fmt.Errorf("invalid padded data length")
 	}
 	unPadding := int(data[length-1])
-	if unPadding > length || unPadding <= 0 {
+	if unPadding > blockSize || unPadding > length || unPadding <= 0 {
 		return nil, fmt.Errorf("invalid padding size")
+	}
+	for _, v := range data[length-unPadding:] {
+		if int(v) != unPadding {
+			return nil, fmt.Errorf("invalid padding size")
+		}
 	}
 	return data[:length-unPadding], nil
 }
