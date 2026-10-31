@@ -70,8 +70,11 @@ go test -tags gmssl -count=1 ./adapter/sm4 ./adapter/sm2
 
 ## 6. 已知限制
 
-- **只有 SM4 走 CGO**。SM2 / SM3 仍为纯 Go：GmSSL-Go 的密钥接口只接受文件路径 PEM（`ImportSm2PublicKeyInfoPem(path)`），
-  覆盖不了本库支持的 PEM / DER / Base64 / Hex / Binary 多编码与密钥解析缓存；强行接入需要写临时文件，故不做。
+- **SM4 与 SM2 走 CGO，SM3 / ZA 与密钥编解码仍是纯 Go**：SM2 的 ZA + SM3 摘要由本库计算后交给 GmSSL 签名/验签，
+  密钥仍按本库的 PEM / DER / Base64 / Hex / Binary 解析（不经文件路径），因此两套后端的密文与签名可互解互验
+  （`adapter/sm2/backend_test.go` 里钉了双向固定向量）。
+- **SM2 单次加密明文上限 255 字节**：GmSSL 的 `SM2_CIPHERTEXT.ciphertext_size` 是 `uint8`；超限返回 error，不会在 C 层截断。
+  纯 Go 后端没有这个限制。
 - **性能不保证更好**：跨 cgo 边界有调用开销，本仓库每次分组运算都会进出一次 C。
   是否更快取决于具体场景，请以 `go test -bench` 在目标环境实测为准，不要照搬第三方数据。
 - **镜像体积与安全面变大**：需要 glibc 基础镜像与 `libgmssl`，并且要跟踪 GmSSL 上游的安全更新。

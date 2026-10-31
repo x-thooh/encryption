@@ -143,6 +143,10 @@ adapter/aes/
 - `newBlock` 与 `Backend()` 必须在三个文件里都提供，否则某个标签组合会编译失败。
 - `adapter/aes/block.go` 提供同名的 `newBlock`（标准库 `crypto/aes`），使 aes 与 sm4 的引擎文件保持逐文件对等；`backend_*.go` 是 `TestAESAndSM4Mirror` 唯一允许不对称的文件集合。
 - 两种后端必须共享同一套模式实现（CBC/ECB/CFB/OFB/CTR/GCM/CCM），差异只允许出现在分组原语处；GB/T 32907 向量必须在两种后端下都通过。
+- SM2 用同一套三段式 seam：`signDigest` / `verifyDigest` / `encryptPoint` / `decryptPoint`（`adapter/sm2/backend_*.go`），`sm2.Backend()` 返回后端名。
+  - 后端之间只交换**规范形态**：未压缩 `C1(0x04||X||Y) || C3 || C2`；点压缩/混合模式与 C1C2C3 拼接顺序由共享的 `ciphertext.go` 转换，两套后端不得各自实现一遍。
+  - ZA + SM3（`gsm2.CalculateSM2Hash`）、ASN.1 签名编解码与密钥解析不随后端切换——这是跨后端互操作的前提。
+  - GmSSL 的 `SM2_CIPHERTEXT` 长度字段是 `uint8`，明文上限 255 字节；超限必须返回 error（不能在 C 层截断）。
 
 ## 5. 算法相关约定
 
@@ -184,6 +188,7 @@ adapter/aes/
 - 签名必须符合 GB/T 32918.2-2016：`CalculateSM2Hash`（ZA + SM3）后再签名；**禁止**直接对原文调用 `gsm2.Sign`。
 - 默认 UID 为 `1234567812345678`，通过 `sm2.WithUID` 覆盖。
 - 签名格式：`SignatureDER`（默认）与 `SignatureRaw`（`r||s`，64 字节）。
+- 曲线运算有两种后端（`sm2.Backend()`）：默认纯 Go，`-tags gmssl` 时为 GmSSL C 库。`-tags gmssl` 下单次加密明文上限 255 字节（GmSSL 结构体限制），超限返回 error。
 - 密文拼接顺序默认 `C1C2C3`（国标）；OpenSSL/gmsm 默认是 `C1C3C2`，跨实现时必须显式设置。
 - 压缩/未压缩/混合点模式与 gmsm 常量一一对应，不要调整映射顺序。
 
@@ -202,7 +207,7 @@ adapter/aes/
 9. 流式改动必须覆盖：`Stream` 配置错误返回 sentinel、固定 IV 只能加密一次（`ErrStreamReused`）、分帧 AEAD 的截断/重排/重复/跨流拼接拒绝、空输入往返。
 10. 改动 `adapter/aes` 或 `adapter/sm4` 任一份模式实现（CBC/ECB/CFB/OFB/CTR/GCM/CCM）后，必须同步另一份并运行 `go test -run TestAESAndSM4Mirror .` 与 `go test -run TestAdapterIndependence .`；`TestAESAndSM4Mirror` 会把两份源码归一化后逐文件比对，只改一份必定失败。
 11. 新增 adapter 时在 `layout_test.go` 的 `TestAdapterIndependence` 约束下走：只能 import `standard` / `padding` / `format` / 标准库 / 第三方库，不得 import 其他 adapter。
-12. 改动 SM4 原语 seam（`adapter/sm4/backend_*.go`、`newBlock`、`Backend()`）必须两种后端都验证：`go test ./...` 与 `go test -tags gmssl ./...`；本机没有 libgmssl 时用 `docker build -f deploy/gmssl/Dockerfile --target test .`，并确认 `go list -tags gmssl -f '{{.CgoFiles}}' ./adapter/sm4` 为 `[backend_gmssl.go]`。
+12. 改动 SM4 / SM2 原语 seam（`adapter/{sm4,sm2}/backend_*.go`、`newBlock`、`sm2.Backend()`）必须两种后端都验证：`go test ./...` 与 `go test -tags gmssl ./...`；本机没有 libgmssl 时用 `docker build -f deploy/gmssl/Dockerfile --target test .`，并确认 `go list -tags gmssl -f '{{.CgoFiles}}' ./adapter/sm4` 为 `[backend_gmssl.go]`。
 13. 修改解析/填充逻辑后，建议运行对应 fuzz target 各 5–10 秒：
 
 ```bash
@@ -221,7 +226,8 @@ go test -run '^$' -fuzz=FuzzCFB8RoundTrip -fuzztime=10s ./adapter/aes ./adapter/
 - 密钥解析缓存是每个 adapter 实例一份，跨实例不复用；作跨实例缓存需要调用方自行缓存密钥字符串或解析结果。
 - AES 与 SM4 的模式实现是两份刻意重复的副本（各 adapter 自包含，不共享实现层）。两者等价性只能靠 `layout_test.go` 的 `TestAESAndSM4Mirror` 守卫；修 bug 时务必两份一起改。SM4-CCM 没有公开标准向量，`adapter/sm4/ccm_test.go` 用固定输出做回归，算法正确性由 `adapter/aes/ccm_test.go` 的 RFC 3610 向量背书。
 - `padding` / `format` 是公开包，改接口或新增实现会影响用户的既有 import 路径（从 `pkg/padding` 迁移到 `padding` 已写入 `README.md`）。
-- CGO 后端目前只覆盖 SM4。SM2 / SM3 仍为纯 Go：`GmSSL-Go` 的密钥接口只接受文件路径 PEM，覆盖不了本库的多编码密钥与解析缓存；要接入需要自写 cgo shim 直接操作 `sm2_key_t`。
+- CGO 后端覆盖 SM4 与 SM2（各自自写 cgo shim 直连 `libgmssl`，不经第三方 Go 包装）。SM3 与 ZA 计算仍为纯 Go：SM2 的摘要由本库算好后交给 GmSSL 签名/验签，因此后端切换不影响签名可验证性。
+- `-tags gmssl` 下 SM2 单次加密明文上限 255 字节（GmSSL `SM2_CIPHERTEXT.ciphertext_size` 是 `uint8`）；纯 Go 后端无此限制，跨后端混用同一份协议时需注意。
 - `github.com/ZZMarquis/gmgo` 这个模块不存在（Go proxy 404），`github.com/ZZMarquis/gm` 是纯 Go 实现；因此 CGO 路线直接对接 GmSSL C 库，不引入第三方 Go 包装依赖。
 
 ## 8. 修改清单（提交前）

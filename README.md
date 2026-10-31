@@ -348,21 +348,26 @@ case errors.Is(err, standard.ErrStreamReused):
 默认构建是纯 Go（`github.com/emmansun/gmsm`）：不依赖 cgo、可静态交叉编译、能跑在 scratch 镜像里。
 需要 GmSSL 的 C 实现时，加构建标签 `gmssl`：
 
-| 构建方式 | SM4 原语 | cgo | 运行期依赖 |
+| 构建方式 | SM4 / SM2 原语 | cgo | 运行期依赖 |
 | --- | --- | --- | --- |
 | `go build ./...`（默认） | `emmansun/gmsm`（纯 Go） | 不需要 | 无 |
 | `CGO_ENABLED=1 go build -tags gmssl ./...` | GmSSL `libgmssl` | 必须开启 | `libgmssl.so` + glibc |
 
 ```go
-import "github.com/x-thooh/encryption/adapter/sm4"
+import (
+    "github.com/x-thooh/encryption/adapter/sm2"
+    "github.com/x-thooh/encryption/adapter/sm4"
+)
 
 // 确认链接进来的是哪套原语："purego" 或 "gmssl"
-backend := sm4.Backend()
+sm4Backend := sm4.Backend()
+sm2Backend := sm2.Backend()
 ```
 
-- 两种后端共享同一套模式实现（CBC / ECB / CFB8 / CFB64 / CFB128 / OFB / CTR / GCM / CCM），只有 SM4 分组原语不同；GB/T 32907-2016 向量在两种后端下都必须通过。
-- `-tags gmssl` 但 `CGO_ENABLED=0` 时不会静默回退：第一次构造 SM4 会返回错误，避免生产流量悄悄换原语。
-- 目前只有 SM4 接入 CGO。SM2 / SM3 仍走纯 Go：GmSSL-Go 的密钥接口只接受文件路径的 PEM，覆盖不了本库的 PEM/DER/Base64/Hex/Binary 多编码与解析缓存。
+- **SM4**：两种后端共享同一套模式实现（CBC / ECB / CFB8 / CFB64 / CFB128 / OFB / CTR / GCM / CCM），只有分组原语不同；GB/T 32907-2016 向量在两种后端下都必须通过。
+- **SM2**：只有曲线运算（签名、验签、加密、解密）切到 GmSSL；ZA + SM3 摘要、ASN.1 编解码与密钥解析（PEM/DER/Base64/Hex/Binary + 缓存）始终由本库完成，因此密文与签名在两种后端之间可互解、可互验（测试里钉了双向固定向量）。
+- GmSSL 的 `SM2_CIPHERTEXT` 用 `uint8` 记录长度，**单次 SM2 加密明文上限 255 字节**；超过时 `-tags gmssl` 构建会返回错误（纯 Go 后端没有该限制）。
+- `-tags gmssl` 但 `CGO_ENABLED=0` 时不会静默回退：第一次构造 SM4 / SM2 会返回错误，避免生产流量悄悄换原语。
 - 构建镜像、运行期依赖、交叉编译限制与验证清单见 [deploy/gmssl/README.md](deploy/gmssl/README.md)。
 
 ## 开发
