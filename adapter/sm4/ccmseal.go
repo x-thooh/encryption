@@ -12,10 +12,7 @@ func (c *ccmCipher) Seal(dst, nonce, plaintext, additionalData []byte) ([]byte, 
 		return nil, errCCMMessageTooLarge
 	}
 
-	mac, err := c.mac(nonce, plaintext, additionalData)
-	if err != nil {
-		return nil, err
-	}
+	mac := c.mac(nonce, plaintext, additionalData)
 	ciphertext := c.ctr(nonce, plaintext)
 	tag := c.tag(mac, nonce)
 
@@ -42,10 +39,7 @@ func (c *ccmCipher) Open(dst, nonce, ciphertext, additionalData []byte) ([]byte,
 	}
 
 	plaintext := c.ctr(nonce, body)
-	mac, err := c.mac(nonce, plaintext, additionalData)
-	if err != nil {
-		return nil, err
-	}
+	mac := c.mac(nonce, plaintext, additionalData)
 	expected := c.tag(mac, nonce)
 	if subtle.ConstantTimeCompare(expected, tag) != 1 {
 		return nil, errCCMAuth

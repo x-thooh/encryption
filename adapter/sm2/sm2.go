@@ -29,6 +29,10 @@ type sm2Signature struct {
 	R, S *big.Int
 }
 
+// marshalSignature 是 asn1.Marshal 的可替换引用：R/S 一定可编码，失败分支不可能发生，
+// 仅在测试里用替身覆盖该分支（生产代码不会改它）。
+var marshalSignature = asn1.Marshal
+
 func NewSM2(
 	pubKey string,
 	priKey string,
@@ -117,7 +121,7 @@ func (s *sm2) Sign(plainText []byte) (string, error) {
 
 	switch s.o.signatureFormat {
 	case SignatureDER, "":
-		sigDER, err := asn1.Marshal(sm2Signature{R: r, S: ss})
+		sigDER, err := marshalSignature(sm2Signature{R: r, S: ss})
 		if err != nil {
 			return "", fmt.Errorf("%w: %w", standard.ErrSign, err)
 		}

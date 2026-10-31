@@ -3,7 +3,9 @@ package aes
 import "crypto/cipher"
 
 // mac 计算 CBC-MAC：B0 || AAD（带长度前缀并按 16 字节对齐）|| plaintext。
-func (c *ccmCipher) mac(nonce, plaintext, additionalData []byte) ([]byte, error) {
+//
+// 消息长度上限由 Seal / Open 在调用前校验（fitsLength），这里不再重复检查。
+func (c *ccmCipher) mac(nonce, plaintext, additionalData []byte) []byte {
 	l := 15 - len(nonce)
 
 	// B0 = flags || nonce || l(m)
@@ -15,9 +17,6 @@ func (c *ccmCipher) mac(nonce, plaintext, additionalData []byte) ([]byte, error)
 	flags |= byte((c.tagSize-2)/2) << 3
 	b0[0] = flags
 	copy(b0[1:], nonce)
-	if !ccmFitsLength(len(plaintext), l) {
-		return nil, errCCMMessageTooLarge
-	}
 	putCCMBigEndian(b0[16-l:], uint64(len(plaintext)))
 
 	var x [16]byte
@@ -44,7 +43,7 @@ func (c *ccmCipher) mac(nonce, plaintext, additionalData []byte) ([]byte, error)
 		ccmCBCMAC(&x, c.block, block[:])
 	}
 
-	return x[:c.tagSize], nil
+	return x[:c.tagSize]
 }
 
 // ccmCBCMAC 累加一个块到 CBC-MAC 状态。

@@ -26,7 +26,7 @@ func NewCFB(key []byte, iv []byte, opts ...Option) standard.IEncrypt {
 // encryptCFB 加密：CFB128 走标准库，CFB8 / CFB64 走本包的分段实现。
 func (c *blockCipher) encryptCFB(origData []byte) (string, error) {
 	if err := c.checkCFB(); err != nil {
-		return "", err
+		return "", fmt.Errorf("%w: %w", standard.ErrEncrypt, err)
 	}
 	if err := checkIV(c.iv, c.block.BlockSize()); err != nil {
 		return "", fmt.Errorf("%w: %w", standard.ErrEncrypt, err)
@@ -49,7 +49,7 @@ func (c *blockCipher) encryptCFB(origData []byte) (string, error) {
 // decryptCFB 解密。
 func (c *blockCipher) decryptCFB(ciphertext string) ([]byte, error) {
 	if err := c.checkCFB(); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: %w", standard.ErrDecrypt, err)
 	}
 	if err := checkIV(c.iv, c.block.BlockSize()); err != nil {
 		return nil, fmt.Errorf("%w: %w", standard.ErrDecrypt, err)
@@ -80,6 +80,6 @@ func (c *blockCipher) checkCFB() error {
 	case 0, 8, 64, 128:
 		return nil
 	default:
-		return fmt.Errorf("%w: cfb segment size not support: %d", standard.ErrEncrypt, c.cfbBits)
+		return fmt.Errorf("cfb segment size not support: %d", c.cfbBits)
 	}
 }

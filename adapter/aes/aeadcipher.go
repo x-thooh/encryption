@@ -11,6 +11,10 @@ import (
 
 const defaultNonceSize = 12
 
+// newGCM 是 cipher.NewGCM 的可替换引用：只有非 16 字节分组才会失败，
+// 本包的分组恒为 16 字节，因此该失败分支在测试里用替身覆盖（生产代码不会改它）。
+var newGCM = cipher.NewGCM
+
 // sealer 抽象 crypto/cipher.AEAD 与 CCM，二者错误语义不同（CCM 返回 error）。
 type sealer interface {
 	Seal(dst, nonce, plaintext, additionalData []byte) ([]byte, error)
@@ -46,7 +50,7 @@ func newAEADCipher(mode standard.Model, key, nonce []byte, f standard.IFormat, a
 
 	switch mode {
 	case standard.ModelGCM:
-		gcm, gerr := cipher.NewGCM(block)
+		gcm, gerr := newGCM(block)
 		if gerr != nil {
 			c.initErr = fmt.Errorf("%w: %w", standard.ErrEncrypt, gerr)
 			return c

@@ -130,8 +130,9 @@ func TestEngineCFBErrors(t *testing.T) {
 	if _, err := badSegment.Encrypt([]byte("x")); !errors.Is(err, standard.ErrEncrypt) {
 		t.Fatalf("got %v, want ErrEncrypt", err)
 	}
-	if _, err := badSegment.Decrypt("x"); !errors.Is(err, standard.ErrEncrypt) {
-		t.Fatalf("got %v, also want ErrEncrypt", err)
+	// 解密方向必须带 ErrDecrypt（此前复用 checkCFB 的 ErrEncrypt，方向标错）。
+	if _, err := badSegment.Decrypt("x"); !errors.Is(err, standard.ErrDecrypt) {
+		t.Fatalf("got %v, want ErrDecrypt", err)
 	}
 
 	shortIV := newBlockCipher(standard.ModelCFB, key, []byte("short"), nil, format.NewOriginal(), 8)

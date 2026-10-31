@@ -129,10 +129,8 @@ func parseCiphertext(order CiphertextSplicingOrder, ct []byte) (*ciphertextParts
 
 	switch ct[0] {
 	case pointCompressed02, pointCompressed03:
+		// 入口已保证 len(ct) >= 1+32+32，压缩形态恰好是这个长度。
 		c1Len = 1 + sm2ScalarSize
-		if len(ct) < c1Len+sm2C3Size {
-			return nil, fmt.Errorf("sm2: ciphertext too short: %d", len(ct))
-		}
 		//nolint:staticcheck // SM2 不在 crypto/ecdh 支持范围内
 		x, y = elliptic.UnmarshalCompressed(curve, ct[:c1Len])
 	case pointUncompressed, pointHybrid06, pointHybrid07:

@@ -24,9 +24,6 @@ func (i *iso1026) Padding(data []byte, blockSize int) ([]byte, error) {
 		return nil, fmt.Errorf("invalid block size")
 	}
 	padding := blockSize - len(data)%blockSize
-	if padding == 0 {
-		padding = blockSize
-	}
 
 	// 随机填充 (n-1 个随机字节)
 	out := make([]byte, len(data)+padding)
