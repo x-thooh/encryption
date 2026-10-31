@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"testing"
 
-	"github.com/x-thooh/encryption/pkg/padding"
+	"github.com/x-thooh/encryption/padding"
 )
 
 func Test_cbc_Encrypt_None(t *testing.T) {
@@ -130,4 +130,24 @@ func Test_cbc_Encrypt_ANSIX923(t *testing.T) {
 		t.Fatalf("decrypt mismatch")
 	}
 	t.Logf("decrypt ok")
+}
+
+func Test_cbc_None_EmptyRoundTrip(t *testing.T) {
+	a := NewCBC(
+		[]byte("1234567890123456"),
+		[]byte("abcdefghijklmnop"),
+		WithPadding(padding.NewNone()),
+	)
+
+	c, err := a.Encrypt(nil)
+	if err != nil {
+		t.Fatalf("encrypt empty: %v", err)
+	}
+	got, err := a.Decrypt(c)
+	if err != nil {
+		t.Fatalf("decrypt empty: %v", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("expected empty plaintext, got %q", got)
+	}
 }
