@@ -26,6 +26,7 @@ go get github.com/x-thooh/encryption
 | --- | --- |
 | [USAGE.md](USAGE.md) | 接口使用说明：六个入口、选项、参数校验矩阵、错误模型、配方与陷阱 |
 | [PERFORMANCE.md](PERFORMANCE.md) | 接口性能基线与基准复现命令 |
+| [TEST_REPORT.md](TEST_REPORT.md) | 发布前测试报告：覆盖率、双后端验证、模糊测试、已知缺口 |
 | [AGENTS.md](AGENTS.md) | 贡献者与编码代理的项目规则 |
 
 ## 支持矩阵

@@ -166,3 +166,15 @@ RSA 生成比 SM2 慢 **约 6 000 倍**（素性检测）。**不要把 RSA `Gen
 | 高并发验签 | RSA-2048（验签 21 µs）或 SM2（签名 15 µs） |
 | 高频密钥解析 | 复用实例，命中缓存（5.8 ns） |
 | 内网高吞吐 | `FormatTypeOriginal`（省掉 88% 编码开销） |
+
+## CGO 后端（SM4 / SM2）未纳入本表
+
+本文件的基准都是**默认纯 Go 构建**（`emmansun/gmsm`）测得的。`CGO_ENABLED=1 -tags gmssl` 走 GmSSL C 库，
+数值取决于底层 `libgmssl` 版本与目标机器，不做跨环境承诺；跨 cgo 边界每次分组运算都有调用开销，
+SM4 的小块高频场景很可能比纯 Go 更慢。要在自己的环境测：
+
+```bash
+CGO_ENABLED=1 go test -tags gmssl -run '^$' -bench 'BenchmarkEncryptInMemory|BenchmarkStream' ./...
+```
+
+结论以实测为准，不要照搬任何第三方对比数据。

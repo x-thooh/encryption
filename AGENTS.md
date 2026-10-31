@@ -62,6 +62,7 @@ streamcrypt.go             流式连续分组模式（CBC / ECB）实现
 streamecb.go               ECB 的 cipher.BlockMode 适配与 writeAll
 layout_test.go             adapter 独立性 / aes↔sm4 等价性断言
 smbackend.go               SM4/SM2 后端运行时自检（SMBackends / SMBackendInfo.Check）
+TEST_REPORT.md             发布前测试报告（覆盖率、双后端、fuzz、已知缺口）
 standard/                  接口、常量与错误哨兵（不要在此引入实现依赖）
 padding/                   填充实现（standard.IPadding 的公开实现）
 format/                    编码实现（Base64 / Base64URL / RawURL / Hex / Original）
@@ -149,6 +150,11 @@ adapter/aes/
   - 后端之间只交换**规范形态**：未压缩 `C1(0x04||X||Y) || C3 || C2`；点压缩/混合模式与 C1C2C3 拼接顺序由共享的 `ciphertext.go` 转换，两套后端不得各自实现一遍。
   - ZA + SM3（`gsm2.CalculateSM2Hash`）、ASN.1 签名编解码与密钥解析不随后端切换——这是跨后端互操作的前提。
   - GmSSL 的 `SM2_CIPHERTEXT` 长度字段是 `uint8`，明文上限 255 字节；超限必须返回 error（不能在 C 层截断）。
+  - SM2 密文的编码/重排在 `ciphertext.go` 里做，`marshal` 必须先 `IsOnCurve` 校验再交给 `elliptic.Marshal*`：
+    后者在新版 Go 里对非法点会 panic，后端口径不可信（防御被污染的 `ciphertextParts`）。
+  - `cipher.Block` / `cipher.BlockMode` 实现的 `Encrypt`/`Decrypt`/`CryptBlocks` 在块长度非法时只能 panic
+    （接口签名不返回 error，标准库同样如此）；这是 §4.2「数据错误返回 error」的唯一豁免，且只能由直接调用触发，
+    门面路径不会走到。
 
 ## 5. 算法相关约定
 
@@ -217,6 +223,7 @@ go test -run '^$' -fuzz=FuzzPaddingNoPanic -fuzztime=10s ./padding
 go test -run '^$' -fuzz=FuzzCBCDecryptNoPanic -fuzztime=10s ./adapter/aes
 go test -run '^$' -fuzz=FuzzGCMDecryptNoPanic -fuzztime=10s ./adapter/aes
 go test -run '^$' -fuzz=FuzzCFB8RoundTrip -fuzztime=10s ./adapter/aes ./adapter/sm4
+go test -run '^$' -fuzz=FuzzParseCiphertextNoPanic -fuzztime=10s ./adapter/sm2
 ```
 
 ## 7. 已知限制 / 后续方向
@@ -240,6 +247,7 @@ go test -run '^$' -fuzz=FuzzCFB8RoundTrip -fuzztime=10s ./adapter/aes ./adapter/
 - [ ] 新增行为已写入 `README.md`
 - [ ] 接口签名/默认值/错误变化已同步 `USAGE.md`
 - [ ] 性能敏感路径的改动已重跑 `PERFORMANCE.md` 的基准并更新表格
+- [ ] `TEST_REPORT.md` 已更新（覆盖率、双后端结果、fuzz、已知缺口）
 - [ ] 破坏性变更已写入 `README.md` 的“从旧版本迁移”并在本文件记录
 - [ ] 未引入新的数据触发 panic
 - [ ] 未在解析路径中修改共享状态
