@@ -144,3 +144,26 @@ func TestCiphertextErrors(t *testing.T) {
 		t.Fatal("unsupported marshal mode: expected error")
 	}
 }
+
+// TestParseHybridPrefixMismatch 断言混合模式下前缀的奇偶位必须与 y 一致。
+//
+// GM/T 0003.2 约定 0x06/0x07 的末位等于 y 的最低位；不一致说明点编码被篡改或
+// 来自非标准实现，gmsm 也会拒绝，这里必须同样严格，避免「我们收、对方不收」。
+func TestParseHybridPrefixMismatch(t *testing.T) {
+	parts := buildParts(t)
+
+	encoded, err := parts.marshal(MarshalHybrid, C1C2C3)
+	if err != nil {
+		t.Fatalf("marshal hybrid: %v", err)
+	}
+	if _, err := parseCiphertext(C1C2C3, encoded); err != nil {
+		t.Fatalf("valid hybrid ciphertext rejected: %v", err)
+	}
+
+	forged := append([]byte(nil), encoded...)
+	forged[0] ^= 0x01 // 0x06 <-> 0x07：前缀与 y 的奇偶位不再匹配
+
+	if _, err := parseCiphertext(C1C2C3, forged); err == nil {
+		t.Fatal("expected error for hybrid prefix/parity mismatch")
+	}
+}

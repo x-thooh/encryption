@@ -335,6 +335,8 @@ case errors.Is(err, standard.ErrStreamReused):
 - 新增错误哨兵：`standard.ErrInvalidKey`、`ErrInvalidCiphertext`、`ErrEncrypt`、`ErrDecrypt`、`ErrSign`、`ErrVerification`。
 - 新增密钥解析缓存上限（默认 1024），可通过 `key.WithCacheLimit` 调整。
 - **流式 AEAD 现在拒绝终止帧之后的任何字节**（`ErrInvalidCiphertext`）：以前尾部数据被静默忽略。若你在同一个 reader 里连续堆了多条流，请每条流单独喂一次 `DecryptStream`。
+- **RSA PKCS#1 v1.5 的空明文现在产出非空密文**：`Encrypt(nil)` 不再返回 `""`（`""` 会被 `Decrypt` 静默解成空明文）。解旧数据不受影响。
+- **SM2 混合模式（`0x06/0x07`）会校验前缀与 `y` 奇偶位是否一致**，不一致按非法密文拒绝。
 - **流式 CBC/ECB 的数据类错误改为携带哨兵**：空/非对齐密文 → `ErrInvalidCiphertext`，坏填充 → `ErrDecrypt`。比对错误文本的代码请改用 `errors.Is`。
 
 ### 本次不兼容变更

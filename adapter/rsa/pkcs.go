@@ -53,12 +53,15 @@ func (p *pcks) Encrypt(plainText []byte) (string, error) {
 	}
 	buffer := bytes.Buffer{}
 
-	for start := 0; start < len(plainText); start += keySize {
-		end := start + keySize
-		if end > len(plainText) {
-			end = len(plainText)
-		}
-		block, err := crsa.EncryptPKCS1v15(rand.Reader, rsaPub, plainText[start:end])
+	// 空明文也要走一次 RSA 运算：否则密文是空字符串，而空字符串又能被
+	// Decrypt 静默解成空明文，等于给了一条「把整段密文换成 "" 」的截断路径。
+	chunks := (len(plainText) + keySize - 1) / keySize
+	if chunks == 0 {
+		chunks = 1
+	}
+	for i := 0; i < chunks; i++ {
+		start := i * keySize
+		block, err := crsa.EncryptPKCS1v15(rand.Reader, rsaPub, plainText[start:min(start+keySize, len(plainText))])
 		if err != nil {
 			return "", fmt.Errorf("%w: %w", standard.ErrEncrypt, err)
 		}

@@ -143,6 +143,13 @@ func parseCiphertext(order CiphertextSplicingOrder, ct []byte) (*ciphertextParts
 		copy(normalized[1:], ct[1:c1Len])
 		//nolint:staticcheck // SM2 不在 crypto/ecdh 支持范围内
 		x, y = elliptic.Unmarshal(curve, normalized)
+		// 混合模式的前缀末位必须等于 y 的最低位（GM/T 0003.2）：不一致说明
+		// 点编码被篡改或来自非标准实现，gmsm 同样会拒绝。
+		if ct[0] != pointUncompressed && y != nil {
+			if want := pointHybrid06 | byte(y.Bit(0)); ct[0] != want {
+				return nil, fmt.Errorf("sm2: hybrid prefix 0x%02x does not match y parity 0x%02x", ct[0], want)
+			}
+		}
 	default:
 		return nil, fmt.Errorf("sm2: unknown C1 form: 0x%02x", ct[0])
 	}

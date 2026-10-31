@@ -136,3 +136,31 @@ func Test_pkcs_Encrypt_Empty(t *testing.T) {
 		t.Fatalf("expected empty plaintext, got %q", got)
 	}
 }
+
+// TestPKCSEmptyPlaintext 断言空明文也会走一次 RSA 运算：密文不能是空字符串。
+//
+// 否则 "" 既能被 Decrypt 静默解成空明文，又把「加密空串」和「没有密文」变成同一
+// 件事 —— 攻击者把整段密文替换为 "" 就能做一次无声截断。
+func TestPKCSEmptyPlaintext(t *testing.T) {
+	pub, pri, err := key.NewRSA(key.WithSize(key.Size2048)).Generate()
+	if err != nil {
+		t.Fatalf("key err: %v", err)
+	}
+	e := NewPKCS(pub, pri)
+
+	cipherText, err := e.Encrypt(nil)
+	if err != nil {
+		t.Fatalf("encrypt empty: %v", err)
+	}
+	if cipherText == "" {
+		t.Fatal("empty plaintext produced an empty ciphertext")
+	}
+
+	plain, err := e.Decrypt(cipherText)
+	if err != nil {
+		t.Fatalf("decrypt: %v", err)
+	}
+	if len(plain) != 0 {
+		t.Fatalf("decrypt: got %d bytes, want 0", len(plain))
+	}
+}

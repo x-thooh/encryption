@@ -4,13 +4,15 @@
 
 ## 未发布（main）
 
-### 流式错误契约收敛
+### 行为与错误契约收敛
 
 | 变更 | 影响与迁移 |
 | --- | --- |
 | 分帧 AEAD 拒绝终止帧之后的多余字节 | 此前尾部数据被静默忽略（`DecryptStream` 在终止帧处直接返回 nil），现在返回 `ErrInvalidCiphertext`。影响：把多条流或额外字节堆在同一个 reader 里的用法会被拒；请每条流一个 reader，或先切分再喂给 `DecryptStream` |
 | 流式 CBC/ECB 的数据类错误带上哨兵 | 空密文与长度非对齐 → `ErrInvalidCiphertext`；去填充失败 → `ErrDecrypt`。此前是裸字符串。影响：比较错误文本的调用方需改用 `errors.Is` |
 | 流式加密侧填充错误带上 `ErrEncrypt` | 与一次性路径口径一致（此前同样是裸字符串） |
+| RSA PKCS#1 v1.5 空明文现在也走一次 RSA 运算 | 此前 `Encrypt(nil)` 返回空字符串 `""`，而 `""` 又能被 `Decrypt` 静默解成空明文——等于给了一条「把整段密文换成空串」的无声截断路径。现在空明文产出与密钥等长的密文；旧版本产生的 `""` 仍能解成空明文（解码侧保持兼容） |
+| SM2 混合模式校验前缀奇偶位 | `0x06/0x07` 前缀必须与 `y` 的最低位一致（GM/T 0003.2），不一致返回 `ErrInvalidCiphertext`。此前会被归一成未压缩点后继续解密，与 gmsm 行为不一致 |
 | 流式 CFB 拒绝非 128 反馈位数 | 此前 `WithCFBSegmentSize(8/64)` 在 `Stream` 中被静默忽略、实际跑 CFB128；现在 `Stream` 构造时返回 error。CFB8/CFB64 请用一次性 `Encrypt` |
 
 ## 亮点
