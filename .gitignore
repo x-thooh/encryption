@@ -31,3 +31,7 @@ go.work.sum
 .idea/
 .vscode/
 
+# 忽略其它点文件，但要放行 CI 配置
+.*
+!.gitignore
+!.github/

@@ -1,0 +1,14 @@
+[tools]
+go = "1.23.4"
+lefthook = "2.1.11"
+golangci-lint = "2.12.2"
+
+[env]
+GOPRIVATE = "github.com"
+GOPROXY = "https://goproxy.cn,direct"
+GOTOOLCHAIN = "auto"
+
+GOPATH = "{{config_root}}/.go"
+GOBIN = "{{config_root}}/.go/bin"
+
+_.path = ["{{config_root}}/.go/bin"]
