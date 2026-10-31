@@ -10,7 +10,7 @@
 | Go | go1.23.4 |
 | 依赖 | `gmsm v0.34.1`（SM2/SM4 软件实现）、`x/crypto`（ChaCha20-Poly1305） |
 | 命令 | `go test -run '^$' -bench . -benchmem -count=1 .` |
-| 基准数 | 48 个子基准，总耗时约 70 s |
+| 基准数 | 56 个子基准，总耗时约 80 s |
 | 数据 | 确定性填充（`byte(i)`），避免随机数据方差 |
 
 复现：
@@ -29,29 +29,50 @@ go test -run '^$' -bench BenchmarkEncryptInMemory -count=5 .   # 多轮取中位
 
 | 方案 | 1 KiB | 16 KiB | 64 KiB |
 | --- | --- | --- | --- |
-| AES-CBC | 1 534 ns / 667 MB/s | 22 569 ns / 726 MB/s | 91 066 ns / 720 MB/s |
-| AES-CTR | 1 067 ns / 960 MB/s | 15 290 ns / 1 072 MB/s | 58 640 ns / 1 118 MB/s |
-| AES-GCM | 1 066 ns / 961 MB/s | 13 290 ns / 1 233 MB/s | 47 669 ns / 1 375 MB/s |
-| SM4-CBC | 8 404 ns / 122 MB/s | 141 867 ns / 115 MB/s | 556 505 ns / 118 MB/s |
-| ChaCha20-Poly1305 | 1 961 ns / 522 MB/s | 23 971 ns / 683 MB/s | 91 519 ns / 716 MB/s |
+| AES-CBC | 1 572 ns / 651 MB/s | 22 526 ns / 727 MB/s | 89 320 ns / 734 MB/s |
+| AES-CTR | 1 105 ns / 926 MB/s | 15 152 ns / 1 081 MB/s | 58 450 ns / 1 121 MB/s |
+| AES-GCM | 1 174 ns / 872 MB/s | 12 632 ns / 1 297 MB/s | 47 487 ns / 1 380 MB/s |
+| AES-CCM | 3 189 ns / 321 MB/s | 42 770 ns / 383 MB/s | 162 597 ns / 403 MB/s |
+| SM4-CBC | 8 967 ns / 114 MB/s | 129 537 ns / 126 MB/s | 506 477 ns / 129 MB/s |
+| SM4-CCM | 15 944 ns / 64 MB/s | 238 748 ns / 69 MB/s | 932 792 ns / 70 MB/s |
+| ChaCha20-Poly1305 | 1 965 ns / 521 MB/s | 22 161 ns / 739 MB/s | 83 389 ns / 786 MB/s |
 
-内存：每次调用约 `payload × 5` 字节、5–7 次分配（padding 副本 + 密文输出 + 编码结果 + string 转换）。
+内存：每次调用约 `payload × 5` 字节，5–11 次分配（padding 副本 + 密文输出 + 编码结果 + string 转换）。
 
 结论：
 
 - AES-GCM 的吞吐与分配都是最优（5 allocs），是 AES 路径的首选。
+- AES-CCM 比 AES-GCM 慢约 **3.5×**：CCM 是 CTR + CBC-MAC 两越分组密码，GCM 靠 CLMUL 一趟完成。
+  这是算法固有差距，不是实现缺陷；选用 CCM 应是为了标准/生态兼容。
 - SM4 约为 AES-CBC 的 **1/6 吞吐**（纯软件实现，无 AES-NI 等价指令）；只在必须用国密的场景选择。
 - ChaCha20-Poly1305 ≈ AES-GCM 的 1/2，但无需硬件加速，在无 AES 指令的平台上更稳。
+
+### 2.1 本轮基准发现的分配缺陷（已修复）
+
+`adapter/{aes,sm4}/ccmctr.go` 与 `ccmmac.go` 当初每处理 16 字节就 `make` 一个
+counter/CBC-MAC 块：
+
+| AES-CCM 加密 | 修复前 | 修复后 |
+| --- | --- | --- |
+| 64 B | 13 allocs | 10 allocs |
+| 1 KiB | 73 allocs | 10 allocs |
+| 64 KiB | **4 105 allocs / 169 449 ns** | **10 allocs / 120 873 ns**（适配器层） |
+
+分配次数不再随消息长度增长，64 KiB 加密快约 29%。耗时收益有限是因为 CCM 的开销
+大头是两越分组密码本身，不是 malloc —— 但 4 105 次分配对 GC 的压力与尾延迟是真实成本。
+回归约束：`TestCCMAllocationsConstant`（两个 adapter 各一份）。
 
 ## 3. 对称解密（`Decrypt`，16 KiB）
 
 | 方案 | ns/op | MB/s | allocs |
 | --- | --- | --- | --- |
-| AES-GCM | 9 072 | 1 806 | 2 |
-| AES-CTR | 13 531 | 1 211 | 5 |
-| AES-CBC | 15 895 | 1 031 | 5 |
-| ChaCha20-Poly1305 | 19 895 | 824 | 3 |
-| SM4-CBC | 39 346 | 416 | 4 |
+| AES-GCM | 8 576 | 1 910 | 2 |
+| AES-CTR | 13 070 | 1 254 | 5 |
+| AES-CBC | 15 085 | 1 086 | 5 |
+| ChaCha20-Poly1305 | 21 837 | 750 | 3 |
+| SM4-CBC | 36 952 | 443 | 4 |
+| AES-CCM | 37 476 | 437 | 8 |
+| SM4-CCM | 235 575 | 70 | 8 |
 
 解密普遍快于加密：省掉了填充副本，且 AEAD 解密只需一次 `Open`。
 

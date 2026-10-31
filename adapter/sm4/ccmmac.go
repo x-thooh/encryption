@@ -5,6 +5,7 @@ import "crypto/cipher"
 // mac 计算 CBC-MAC：B0 || AAD（带长度前缀并按 16 字节对齐）|| plaintext。
 //
 // 消息长度上限由 Seal / Open 在调用前校验（fitsLength），这里不再重复检查。
+// 缓冲区都按调用分配一次并复用，不随消息长度增长（曾经每 16 字节 make 一块）。
 func (c *ccmCipher) mac(nonce, plaintext, additionalData []byte) []byte {
 	l := 15 - len(nonce)
 
@@ -19,8 +20,8 @@ func (c *ccmCipher) mac(nonce, plaintext, additionalData []byte) []byte {
 	copy(b0[1:], nonce)
 	putCCMBigEndian(b0[16-l:], uint64(len(plaintext)))
 
-	var x [16]byte
-	ccmCBCMAC(&x, c.block, b0)
+	x := make([]byte, 16)
+	ccmCBCMAC(x, c.block, b0)
 
 	if len(additionalData) > 0 {
 		stream := ccmEncodeAADLength(len(additionalData))
@@ -29,27 +30,24 @@ func (c *ccmCipher) mac(nonce, plaintext, additionalData []byte) []byte {
 			stream = append(stream, make([]byte, pad)...)
 		}
 		for i := 0; i < len(stream); i += 16 {
-			ccmCBCMAC(&x, c.block, stream[i:i+16])
+			ccmCBCMAC(x, c.block, stream[i:i+16])
 		}
 	}
 
+	block := make([]byte, 16)
 	for i := 0; i < len(plaintext); i += 16 {
-		end := i + 16
-		if end > len(plaintext) {
-			end = len(plaintext)
-		}
-		var block [16]byte
-		copy(block[:], plaintext[i:end])
-		ccmCBCMAC(&x, c.block, block[:])
+		n := copy(block, plaintext[i:min(i+16, len(plaintext))])
+		clear(block[n:])
+		ccmCBCMAC(x, c.block, block)
 	}
 
 	return x[:c.tagSize]
 }
 
 // ccmCBCMAC 累加一个块到 CBC-MAC 状态。
-func ccmCBCMAC(x *[16]byte, block cipher.Block, data []byte) {
-	for i := 0; i < 16; i++ {
+func ccmCBCMAC(x []byte, block cipher.Block, data []byte) {
+	for i := range 16 {
 		x[i] ^= data[i]
 	}
-	block.Encrypt(x[:], x[:])
+	block.Encrypt(x, x)
 }

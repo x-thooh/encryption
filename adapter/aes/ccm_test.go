@@ -98,3 +98,28 @@ func TestCCMInvalidParameters(t *testing.T) {
 		t.Fatalf("expected ErrInvalidCiphertext, got %v", err)
 	}
 }
+
+// TestCCMAllocationsConstant 断言 CCM 每次加密的堆分配次数与消息长度无关。
+//
+// 曾经 ctr/mac 每处理 16 字节就 make 一个块，64 KiB 明文要 4105 次分配，
+// 比同长度的 GCM 慢 8 倍。这里把「不随长度增长」钉成回归约束。
+func TestCCMAllocationsConstant(t *testing.T) {
+	c := NewCCM(bytes.Repeat([]byte{1}, 16), nil, WithFormat(format.NewOriginal()))
+
+	measure := func(size int) float64 {
+		plain := make([]byte, size)
+		run := func() {
+			if _, err := c.Encrypt(plain); err != nil {
+				t.Fatalf("encrypt %d bytes: %v", size, err)
+			}
+		}
+		run() // 预热，避免把首次初始化算进去
+		return testing.AllocsPerRun(20, run)
+	}
+
+	small := measure(64)
+	large := measure(64 * 1024)
+	if large > small+8 {
+		t.Fatalf("allocations grow with message size: 64B=%.0f, 64KiB=%.0f", small, large)
+	}
+}

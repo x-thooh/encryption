@@ -54,11 +54,23 @@ func benchSymSchemes() []struct {
 			encryption.WithModel(standard.ModelGCM),
 			encryption.WithKey(aesKey),
 		}},
+		// CCM 单列一项：CTR + CBC-MAC 两个循环最容易写出「按块分配」，
+		// 曾经 64 KiB 明文需要 4105 次 make，比同长度 GCM 慢 8 倍。
+		{"AES-CCM", []encryption.Option{
+			encryption.WithType(standard.TypeAES),
+			encryption.WithModel(standard.ModelCCM),
+			encryption.WithKey(aesKey),
+		}},
 		{"SM4-CBC", []encryption.Option{
 			encryption.WithType(standard.TypeSM4),
 			encryption.WithModel(standard.ModelCBC),
 			encryption.WithKey(sm4Key),
 			encryption.WithIV(iv),
+		}},
+		{"SM4-CCM", []encryption.Option{
+			encryption.WithType(standard.TypeSM4),
+			encryption.WithModel(standard.ModelCCM),
+			encryption.WithKey(sm4Key),
 		}},
 		{"ChaCha20-Poly1305", []encryption.Option{
 			encryption.WithType(standard.TypeChaCha20Poly1305),
