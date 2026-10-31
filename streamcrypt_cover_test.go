@@ -96,8 +96,8 @@ func TestCryptStreamPaddingErrors(t *testing.T) {
 func TestCryptStreamEmptyCiphertext(t *testing.T) {
 	mode := ecbMode(t)
 	err := cryptStream(mode, padding.NewPKCS7(), bytes.NewReader(nil), io.Discard, true)
-	if err == nil || err.Error() != "stream: empty ciphertext" {
-		t.Fatalf("got %v, want empty ciphertext error", err)
+	if !errors.Is(err, standard.ErrInvalidCiphertext) {
+		t.Fatalf("got %v, want ErrInvalidCiphertext", err)
 	}
 }
 

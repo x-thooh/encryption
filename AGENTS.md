@@ -135,7 +135,8 @@ adapter/aes/
 
 - `Stream` 返回 `(standard.IStream, error)`：密钥/IV 长度错误、AEAD 传入固定 IV 都返回 error（`ErrInvalidKey` / `ErrInvalidIV`），不再 panic；不支持的算法/模式组合仍然 panic。
 - `Stream` 的块/流模式始终输出原始字节，忽略 `WithFormatType`。
-- AEAD 流式模式使用 `uint32 大端长度 || 密文` 分帧，每帧独立随机 nonce；帧明文为 `streamID(8) || seq(4) || kind(1) || data`，并以终止帧（`kind=1`、data 为空）收尾。缺少终止帧、帧序错乱、帧重复、跨流拼接都必须返回 error。
+- AEAD 流式模式使用 `uint32 大端长度 || 密文` 分帧，每帧独立随机 nonce；帧明文为 `streamID(8) || seq(4) || kind(1) || data`，并以终止帧（`kind=1`、data 为空）收尾。缺少终止帧、帧序错乱、帧重复、跨流拼接、终止帧之后的多余字节都必须返回 error。
+- 流式数据类错误与一次性路径共用同一组哨兵：空/非对齐密文、坏填充等必须分别携带 `standard.ErrInvalidCiphertext` / `standard.ErrDecrypt`，不允许返回裸字符串（见 §4.2）。
 - 固定 IV 的块/流模式实例只能加密一次，第二次 `EncryptStream` 返回 `standard.ErrStreamReused`（固定 IV 复用会复用 keystream）；解密不推进状态，可重复调用。AEAD 分帧实例可复用。
 - 流式帧长度上限 64 MiB；解码时先校验长度再分配内存。
 - RSA/SM2 不支持流式；CFB 流式仅支持 CFB128。

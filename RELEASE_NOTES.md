@@ -2,6 +2,16 @@
 
 > 状态：已于 2026-10-31 发布（tag `v0.2.0`）。发布检查见 [TEST_REPORT.md](TEST_REPORT.md)，风险见 [RISK_REGISTER.md](RISK_REGISTER.md)。
 
+## 未发布（main）
+
+### 流式错误契约收敛
+
+| 变更 | 影响与迁移 |
+| --- | --- |
+| 分帧 AEAD 拒绝终止帧之后的多余字节 | 此前尾部数据被静默忽略（`DecryptStream` 在终止帧处直接返回 nil），现在返回 `ErrInvalidCiphertext`。影响：把多条流或额外字节堆在同一个 reader 里的用法会被拒；请每条流一个 reader，或先切分再喂给 `DecryptStream` |
+| 流式 CBC/ECB 的数据类错误带上哨兵 | 空密文与长度非对齐 → `ErrInvalidCiphertext`；去填充失败 → `ErrDecrypt`。此前是裸字符串。影响：比较错误文本的调用方需改用 `errors.Is` |
+| 流式加密侧填充错误带上 `ErrEncrypt` | 与一次性路径口径一致（此前同样是裸字符串） |
+
 ## 亮点
 
 1. **拆掉共享实现层**：`adapter/aes` 与 `adapter/sm4` 各自持有 CBC/ECB/CFB/OFB/CTR/GCM/CCM 的完整实现，

@@ -31,7 +31,7 @@
 | 编码 | Base64 / Base64URL / Base64RawURL / Hex / Original |
 | 密钥编码 | PEM PKCS#1、PKCS#8、DER、Base64、Hex、Binary；解析缓存与并发 |
 | 错误路径 | 每个 adapter 都有负向用例，并用 `errors.Is` 断言 `standard` 哨兵 |
-| 流式 | CBC/ECB/CFB128/OFB/CTR 连续流；AEAD 分帧的截断/重排/重复/跨流拼接拒绝；固定 IV 只能加密一次 |
+| 流式 | CBC/ECB/CFB128/OFB/CTR 连续流；AEAD 分帧的截断/重排/重复/跨流拼接/终止帧后遗留数据拒绝；固定 IV 只能加密一次；流式错误与一次性路径共用同一组哨兵 |
 | 原语后端 | 默认纯 Go；`-tags gmssl` 时 SM4 / SM2 走 GmSSL C 库（两种后端跑同一套用例） |
 | 结构守卫 | `TestAdapterIndependence`（禁止 adapter 互相依赖 / 共享层）、`TestAESAndSM4Mirror`（aes↔sm4 逐文件等价） |
 

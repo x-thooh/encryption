@@ -272,9 +272,9 @@ case errors.Is(err, standard.ErrInvalidKey):
 case errors.Is(err, standard.ErrInvalidIV):
     // IV / nonce 长度错误，或 AEAD 流式传入了固定 IV
 case errors.Is(err, standard.ErrInvalidCiphertext):
-    // 密文编码/长度错误
+    // 密文编码/长度错误；流式 AEAD 终止帧之后还有数据也属于此类
 case errors.Is(err, standard.ErrDecrypt):
-    // 解密或 AEAD 认证失败
+    // 解密或 AEAD 认证失败（含流式 CBC/ECB 的坏填充）
 case errors.Is(err, standard.ErrStreamReused):
     // 固定 IV 的流对象被重复用于加密
 }
@@ -305,7 +305,7 @@ case errors.Is(err, standard.ErrStreamReused):
 - **CBC / CFB / OFB / CTR 不提供完整性保护**：新系统应优先使用 GCM 或 ChaCha20-Poly1305；仍使用传统模式时应在协议层增加 MAC。
 - **GCM / CCM / ChaCha20-Poly1305 固定 nonce 必须唯一**：显式传入 IV 时，每条消息的 nonce 绝不能重复，否则会泄露明文并破坏认证。不确定时请使用默认随机 nonce 模式。
 - **CCM tag 长度**：默认 16 字节；较短 tag 会降低伪造难度，不建议低于 8 字节。
-- **流式 AEAD 分帧**：每帧独立认证，帧长度上限 64 MiB；帧明文绑定 `streamID` 与递增 `seq`，并以终止帧收尾，缺失终止帧（截断）、帧重排、帧重复、跨流拼接都会被拒绝。整条流的重放仍需上层协议（时间戳/序号）防护。
+- **流式 AEAD 分帧**：每帧独立认证，帧长度上限 64 MiB；帧明文绑定 `streamID` 与递增 `seq`，并以终止帧收尾，缺失终止帧（截断）、帧重排、帧重复、跨流拼接，以及终止帧之后的任何多余字节（`ErrInvalidCiphertext`）都会被拒绝。整条流的重放仍需上层协议（时间戳/序号）防护。
 - **固定 IV 的流对象只能加密一次**：CBC/ECB/CFB/OFB/CTR 的流式实例持有调用方传入的 IV，重复加密会复用 keystream，因此第二次 `EncryptStream` 直接返回 `standard.ErrStreamReused`。每条消息请新建 `Stream`。
 - **CBC 填充错误可区分**：解密会区分长度错误与填充错误；面向不可信输入时建议在业务层统一错误信息，避免形成 padding oracle。
 - **RSA 1024 仅用于兼容/测试**：新系统应使用 2048 位及以上。
@@ -334,6 +334,8 @@ case errors.Is(err, standard.ErrStreamReused):
 - 新增 `FormatTypeBase64URL`、`FormatTypeBase64RawURL` 及对应密钥格式。
 - 新增错误哨兵：`standard.ErrInvalidKey`、`ErrInvalidCiphertext`、`ErrEncrypt`、`ErrDecrypt`、`ErrSign`、`ErrVerification`。
 - 新增密钥解析缓存上限（默认 1024），可通过 `key.WithCacheLimit` 调整。
+- **流式 AEAD 现在拒绝终止帧之后的任何字节**（`ErrInvalidCiphertext`）：以前尾部数据被静默忽略。若你在同一个 reader 里连续堆了多条流，请每条流单独喂一次 `DecryptStream`。
+- **流式 CBC/ECB 的数据类错误改为携带哨兵**：空/非对齐密文 → `ErrInvalidCiphertext`，坏填充 → `ErrDecrypt`。比对错误文本的代码请改用 `errors.Is`。
 
 ### 本次不兼容变更
 

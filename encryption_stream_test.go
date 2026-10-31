@@ -99,6 +99,86 @@ func TestStreamBlockModes(t *testing.T) {
 	}
 }
 
+// TestStreamBlockDecryptErrorContract 断言流式分组解密的错误契约与一次性路径一致：
+// 数据类错误（空中/非对齐密文、坏填充）必须携带 standard 哨兵，而不是裸字符串。
+func TestStreamBlockDecryptErrorContract(t *testing.T) {
+	const blockSize = 16
+	iv := bytes.Repeat([]byte{0x2a}, blockSize)
+
+	// 分组模式实例：一次性路径与流式路径用同一组参数构造。
+	newPair := func(typ standard.Type, key []byte, model standard.Model) (standard.IEncrypt, standard.IStream) {
+		t.Helper()
+		opts := []encryption.Option{
+			encryption.WithType(typ),
+			encryption.WithModel(model),
+			encryption.WithKey(key),
+		}
+		if model == standard.ModelCBC {
+			opts = append(opts, encryption.WithIV(iv))
+		}
+		e := encryption.Encrypt(append(append([]encryption.Option{}, opts...),
+			encryption.WithFormatType(standard.FormatTypeOriginal))...)
+		return e, mustStream(t, opts...)
+	}
+
+	for _, tc := range []struct {
+		name  string
+		typ   standard.Type
+		key   []byte
+		model standard.Model
+	}{
+		{"AES-CBC", standard.TypeAES, aesKey, standard.ModelCBC},
+		{"AES-ECB", standard.TypeAES, aesKey, standard.ModelECB},
+		{"SM4-CBC", standard.TypeSM4, sm4Key, standard.ModelCBC},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Run("empty ciphertext", func(t *testing.T) {
+				_, s := newPair(tc.typ, tc.key, tc.model)
+				err := s.DecryptStream(bytes.NewReader(nil), &bytes.Buffer{})
+				if !errors.Is(err, standard.ErrInvalidCiphertext) {
+					t.Fatalf("got %v, want ErrInvalidCiphertext", err)
+				}
+			})
+
+			t.Run("non-aligned ciphertext", func(t *testing.T) {
+				_, s := newPair(tc.typ, tc.key, tc.model)
+				err := s.DecryptStream(bytes.NewReader(make([]byte, blockSize+1)), &bytes.Buffer{})
+				if !errors.Is(err, standard.ErrInvalidCiphertext) {
+					t.Fatalf("got %v, want ErrInvalidCiphertext", err)
+				}
+			})
+
+			// 坏填充：把最后一个明文字节的 0x10 确定性地翻成 0x00。
+			// CBC 需改 C[n-1]（P[n] = D(C[n]) ^ C[n-1]），ECB 直接改 C[n]。
+			t.Run("bad padding", func(t *testing.T) {
+				e, s := newPair(tc.typ, tc.key, tc.model)
+				ct, err := e.Encrypt(bytes.Repeat([]byte{'A'}, blockSize))
+				if err != nil {
+					t.Fatalf("encrypt: %v", err)
+				}
+				raw := []byte(ct)
+				if len(raw) != 2*blockSize {
+					t.Fatalf("ciphertext len = %d, want %d", len(raw), 2*blockSize)
+				}
+				if tc.model == standard.ModelECB {
+					raw[len(raw)-1] ^= byte(blockSize)
+				} else {
+					raw[blockSize-1] ^= byte(blockSize)
+				}
+
+				derr := s.DecryptStream(bytes.NewReader(raw), &bytes.Buffer{})
+				if !errors.Is(derr, standard.ErrDecrypt) {
+					t.Fatalf("stream decrypt: got %v, want ErrDecrypt", derr)
+				}
+				// 一次性路径必须给出同一个哨兵，两者口径一致。
+				if _, oerr := e.Decrypt(string(raw)); !errors.Is(oerr, standard.ErrDecrypt) {
+					t.Fatalf("one-shot decrypt: got %v, want ErrDecrypt", oerr)
+				}
+			})
+		})
+	}
+}
+
 func TestStreamAEADModes(t *testing.T) {
 	key := bytes.Repeat([]byte{0x01}, 32)
 	plain := []byte("stream aead plaintext")
@@ -415,6 +495,12 @@ func TestStreamAEADFrameIntegrity(t *testing.T) {
 			},
 			target: standard.ErrInvalidCiphertext,
 		},
+		{
+			// 终止帧之后不得再有帧：否则整包密文存在未被消费的尾巴。
+			name:   "duplicate frame after terminal",
+			build:  func() []byte { return joinFrames(append(append([][]byte{}, frames...), frames[0])) },
+			target: standard.ErrInvalidCiphertext,
+		},
 	}
 
 	for _, tt := range tests {
@@ -441,6 +527,15 @@ func TestStreamAEADFrameIntegrity(t *testing.T) {
 		err := newStream().DecryptStream(bytes.NewReader(joinFrames(forged)), &bytes.Buffer{})
 		if !errors.Is(err, standard.ErrDecrypt) {
 			t.Fatalf("got %v, want ErrDecrypt", err)
+		}
+	})
+
+	// 终止帧之后追加非帧格式的垃圾字节同样必须被拒绝。
+	t.Run("garbage bytes after terminal frame", func(t *testing.T) {
+		garbage := append(append([]byte{}, joinFrames(frames)...), 'j', 'u', 'n', 'k', '!')
+		err := newStream().DecryptStream(bytes.NewReader(garbage), &bytes.Buffer{})
+		if !errors.Is(err, standard.ErrInvalidCiphertext) {
+			t.Fatalf("got %v, want ErrInvalidCiphertext", err)
 		}
 	})
 

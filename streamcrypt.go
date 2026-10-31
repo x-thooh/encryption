@@ -2,7 +2,6 @@ package encryption
 
 import (
 	"crypto/cipher"
-	"errors"
 	"fmt"
 	"io"
 
@@ -55,27 +54,28 @@ func cryptStream(mode cipher.BlockMode, padding standard.IPadding, r io.Reader, 
 	if !decrypt {
 		padded, err := padding.Padding(pending, blockSize)
 		if err != nil {
-			return err
+			return fmt.Errorf("%w: %w", standard.ErrEncrypt, err)
 		}
 		if len(padded)%blockSize != 0 {
-			return fmt.Errorf("stream: padded length %d is not a multiple of block size %d", len(padded), blockSize)
+			return fmt.Errorf("%w: padded length %d is not a multiple of block size %d", standard.ErrEncrypt, len(padded), blockSize)
 		}
 		out := make([]byte, len(padded))
 		mode.CryptBlocks(out, padded)
 		return writeAll(w, out)
 	}
 
+	// 解密侧的数据类错误必须与一次性路径保持同一组哨兵。
 	if len(pending) == 0 {
-		return errors.New("stream: empty ciphertext")
+		return fmt.Errorf("%w: empty ciphertext", standard.ErrInvalidCiphertext)
 	}
 	if len(pending)%blockSize != 0 {
-		return fmt.Errorf("stream: ciphertext length %d is not a multiple of block size %d", len(pending), blockSize)
+		return fmt.Errorf("%w: ciphertext length %d is not a multiple of block size %d", standard.ErrInvalidCiphertext, len(pending), blockSize)
 	}
 	out := make([]byte, len(pending))
 	mode.CryptBlocks(out, pending)
 	plain, err := padding.UnPadding(out, blockSize)
 	if err != nil {
-		return err
+		return fmt.Errorf("%w: %w", standard.ErrDecrypt, err)
 	}
 	return writeAll(w, plain)
 }

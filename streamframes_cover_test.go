@@ -253,6 +253,38 @@ func TestDecryptStreamHeaderReadError(t *testing.T) {
 	}
 }
 
+// tailErrReader 返回完全部数据后，在终止帧之后给出非 EOF 错误。
+type tailErrReader struct {
+	data []byte
+	err  error
+}
+
+func (r *tailErrReader) Read(p []byte) (int, error) {
+	if len(r.data) == 0 {
+		return 0, r.err
+	}
+	n := copy(p, r.data)
+	r.data = r.data[n:]
+	return n, nil
+}
+
+// TestDecryptStreamTrailingReadError 覆盖终止帧之后探测尾部数据时的读取失败：
+// 底层错误必须原样上报，不能被当成「没有尾部数据」。
+func TestDecryptStreamTrailingReadError(t *testing.T) {
+	f := framedFixture(t)
+	id := make([]byte, frameStreamIDLen)
+
+	var stream []byte
+	stream = append(stream, craftFrame(t, f, id, 0, frameKindData, []byte("payload"))...)
+	stream = append(stream, craftFrame(t, f, id, 1, frameKindTerminal, nil)...)
+
+	boom := errors.New("boom")
+	err := f.DecryptStream(&tailErrReader{data: stream, err: boom}, io.Discard)
+	if !errors.Is(err, boom) {
+		t.Fatalf("got %v, want %v", err, boom)
+	}
+}
+
 // errEnc 让 Encrypt 失败，覆盖 writeFrame 的加密失败分支。
 type errEnc struct{}
 

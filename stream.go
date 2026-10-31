@@ -49,7 +49,7 @@ const (
 //
 // 分帧 AEAD 的线上格式为 `uint32 大端长度 || 密文`，其中每个密文帧的明文为
 // `streamID(8) || seq(4) || kind(1) || data` 并带独立随机 nonce；流以终止帧收尾。
-// 缺少终止帧、帧序错乱、帧重复、跨流拼接都会被拒绝。
+// 缺少终止帧、帧序错乱、帧重复、跨流拼接，以及终止帧之后的任何多余字节都会被拒绝。
 //
 // 分组/流模式（CBC/ECB/CFB/OFB/CTR）使用调用方提供的固定 IV，因此一个实例只能
 // 加密一条消息：再次调用 EncryptStream 会返回 standard.ErrStreamReused。解密不推进
@@ -359,7 +359,9 @@ func (f *framedAEAD) DecryptStream(r io.Reader, w io.Writer) error {
 			if len(payload) != 0 {
 				return fmt.Errorf("%w: malformed terminal frame", standard.ErrInvalidCiphertext)
 			}
-			return nil
+			// 终止帧必须是最后一段字节：其后的任何数据（拼接的帧、垃圾、第二
+			// 条流）都不属于本条流，静默忽略等于绕过了截断检测。
+			return ensureStreamEOF(r)
 		default:
 			return fmt.Errorf("%w: unknown frame kind %d", standard.ErrInvalidCiphertext, kind)
 		}
@@ -388,6 +390,23 @@ func (f *framedAEAD) writeFrame(w io.Writer, id []byte, seq uint32, kind byte, d
 		return werr
 	}
 	return writeFull(w, []byte(cipherText))
+}
+
+// ensureStreamEOF 断言终止帧之后不再有任何字节。
+//
+// io.ReadFull 在「没有更多数据」时返回 (0, io.EOF) 或 (0, io.ErrUnexpectedEOF)；
+// 读到 1 字节就说明存在尾部数据，必须拒绝而不是静默丢弃。
+func ensureStreamEOF(r io.Reader) error {
+	var probe [1]byte
+	n, err := io.ReadFull(r, probe[:])
+	switch {
+	case n > 0:
+		return fmt.Errorf("%w: trailing data after terminal frame", standard.ErrInvalidCiphertext)
+	case err == io.EOF || err == io.ErrUnexpectedEOF:
+		return nil
+	default:
+		return err
+	}
 }
 
 func writeFull(w io.Writer, b []byte) error {
