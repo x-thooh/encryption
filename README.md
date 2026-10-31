@@ -343,6 +343,28 @@ case errors.Is(err, standard.ErrStreamReused):
 - **共享实现层 `pkg/` 已删除**：`pkg/padding` → `padding`、`pkg/format` → `format`（只改 import 路径，API 不变）；`pkg/blockmode`、`pkg/aead`、`pkg/ccm`、`pkg/cfb`、`pkg/stream` 不再存在。若你曾 import 这些包，请改用对应 adapter 的公开构造器。
 - **adapter 之间不再共享实现**：AES 与 SM4 各持一份 CBC/ECB/CFB/OFB/CTR、GCM/CCM 实现（只差底层分组密码），两份等价性由根包 `layout_test.go` 的 `TestAESAndSM4Mirror` 强制守卫。
 
+## CGO 国密后端（可选）
+
+默认构建是纯 Go（`github.com/emmansun/gmsm`）：不依赖 cgo、可静态交叉编译、能跑在 scratch 镜像里。
+需要 GmSSL 的 C 实现时，加构建标签 `gmssl`：
+
+| 构建方式 | SM4 原语 | cgo | 运行期依赖 |
+| --- | --- | --- | --- |
+| `go build ./...`（默认） | `emmansun/gmsm`（纯 Go） | 不需要 | 无 |
+| `CGO_ENABLED=1 go build -tags gmssl ./...` | GmSSL `libgmssl` | 必须开启 | `libgmssl.so` + glibc |
+
+```go
+import "github.com/x-thooh/encryption/adapter/sm4"
+
+// 确认链接进来的是哪套原语："purego" 或 "gmssl"
+backend := sm4.Backend()
+```
+
+- 两种后端共享同一套模式实现（CBC / ECB / CFB8 / CFB64 / CFB128 / OFB / CTR / GCM / CCM），只有 SM4 分组原语不同；GB/T 32907-2016 向量在两种后端下都必须通过。
+- `-tags gmssl` 但 `CGO_ENABLED=0` 时不会静默回退：第一次构造 SM4 会返回错误，避免生产流量悄悄换原语。
+- 目前只有 SM4 接入 CGO。SM2 / SM3 仍走纯 Go：GmSSL-Go 的密钥接口只接受文件路径的 PEM，覆盖不了本库的 PEM/DER/Base64/Hex/Binary 多编码与解析缓存。
+- 构建镜像、运行期依赖、交叉编译限制与验证清单见 [deploy/gmssl/README.md](deploy/gmssl/README.md)。
+
 ## 开发
 
 ```bash

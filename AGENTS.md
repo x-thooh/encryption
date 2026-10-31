@@ -28,6 +28,11 @@ go vet ./...
 go test ./...
 go test -race ./...        # 提交前必须通过
 go test -cover ./...
+
+# 可选：CGO（GmSSL）后端，需要 libgmssl + cgo
+CGO_ENABLED=1 go build -tags gmssl ./...
+CGO_ENABLED=1 go test -tags gmssl ./...
+docker build -f deploy/gmssl/Dockerfile --target test .   # 无本地 GmSSL 时的等价验证
 ```
 
 覆盖率基线（2026-10 修复后，仅供参考，不要降低）：
@@ -66,6 +71,7 @@ adapter/rsa/               RSA：pkcs / oaep / pss + base(选项)
 adapter/rsa/key/           RSA 密钥生成与解析（带缓存）
 adapter/sm2/               SM2：加解密 + 签名 + base(选项)
 adapter/sm2/key/           SM2 密钥生成与解析（带缓存）
+deploy/gmssl/              CGO（GmSSL）后端的构建/验证镜像与部署依赖说明
 ```
 
 `adapter/aes` 与 `adapter/sm4` 的文件一一对应（`blockcipher.go`、`blocks.go`、`cfbsegment.go`、`aeadcipher.go`、`aeaddecrypt.go`、`nonce.go`、`ccm*.go` 等），每个包内自带完整实现：
@@ -128,6 +134,16 @@ adapter/aes/
 
 `standard.IGenerate.Generate()` 返回 `(pub, pri, err)`，所有实现必须保持一致。
 
+### 4.7 算法原语后端 seam
+
+- SM4 的分组原语只能通过 `adapter/sm4/newBlock` 获取，禁止在引擎文件里直接 import 具体库：
+  - `backend_purego.go`（`//go:build !gmssl`）：`emmansun/gmsm` 纯 Go，默认构建，无 cgo；
+  - `backend_gmssl.go`（`//go:build gmssl && cgo`）：GmSSL C 库（`#cgo LDFLAGS: -lgmssl`）；
+  - `backend_nocgo.go`（`//go:build gmssl && !cgo`）：返回明确错误，**不允许静默回退**到纯 Go。
+- `newBlock` 与 `Backend()` 必须在三个文件里都提供，否则某个标签组合会编译失败。
+- `adapter/aes/block.go` 提供同名的 `newBlock`（标准库 `crypto/aes`），使 aes 与 sm4 的引擎文件保持逐文件对等；`backend_*.go` 是 `TestAESAndSM4Mirror` 唯一允许不对称的文件集合。
+- 两种后端必须共享同一套模式实现（CBC/ECB/CFB/OFB/CTR/GCM/CCM），差异只允许出现在分组原语处；GB/T 32907 向量必须在两种后端下都通过。
+
 ## 5. 算法相关约定
 
 ### AES / SM4
@@ -143,6 +159,7 @@ adapter/aes/
 - CCM 使用 7..13 字节 nonce、4..16 偶数字节 tag；随机 nonce 模式使用 12 字节前置 nonce。
 - CCM/GCM 的 AAD 通过 `WithAAD` 配置；加解密 AAD 必须一致。
 - ECB 仅用于兼容，文档中必须标注不安全。
+- SM4 有两种后端：默认纯 Go（`emmansun/gmsm`），`-tags gmssl` 时为 GmSSL C 库。后端切换只影响分组原语，模式语义、错误哨兵、输出编码必须完全一致；`sm4.Backend()` 返回当前后端名（`purego` / `gmssl`）。
 
 ### ChaCha20-Poly1305
 
@@ -185,7 +202,8 @@ adapter/aes/
 9. 流式改动必须覆盖：`Stream` 配置错误返回 sentinel、固定 IV 只能加密一次（`ErrStreamReused`）、分帧 AEAD 的截断/重排/重复/跨流拼接拒绝、空输入往返。
 10. 改动 `adapter/aes` 或 `adapter/sm4` 任一份模式实现（CBC/ECB/CFB/OFB/CTR/GCM/CCM）后，必须同步另一份并运行 `go test -run TestAESAndSM4Mirror .` 与 `go test -run TestAdapterIndependence .`；`TestAESAndSM4Mirror` 会把两份源码归一化后逐文件比对，只改一份必定失败。
 11. 新增 adapter 时在 `layout_test.go` 的 `TestAdapterIndependence` 约束下走：只能 import `standard` / `padding` / `format` / 标准库 / 第三方库，不得 import 其他 adapter。
-12. 修改解析/填充逻辑后，建议运行对应 fuzz target 各 5–10 秒：
+12. 改动 SM4 原语 seam（`adapter/sm4/backend_*.go`、`newBlock`、`Backend()`）必须两种后端都验证：`go test ./...` 与 `go test -tags gmssl ./...`；本机没有 libgmssl 时用 `docker build -f deploy/gmssl/Dockerfile --target test .`，并确认 `go list -tags gmssl -f '{{.CgoFiles}}' ./adapter/sm4` 为 `[backend_gmssl.go]`。
+13. 修改解析/填充逻辑后，建议运行对应 fuzz target 各 5–10 秒：
 
 ```bash
 go test -run '^$' -fuzz=FuzzPaddingNoPanic -fuzztime=10s ./padding
@@ -203,6 +221,8 @@ go test -run '^$' -fuzz=FuzzCFB8RoundTrip -fuzztime=10s ./adapter/aes ./adapter/
 - 密钥解析缓存是每个 adapter 实例一份，跨实例不复用；作跨实例缓存需要调用方自行缓存密钥字符串或解析结果。
 - AES 与 SM4 的模式实现是两份刻意重复的副本（各 adapter 自包含，不共享实现层）。两者等价性只能靠 `layout_test.go` 的 `TestAESAndSM4Mirror` 守卫；修 bug 时务必两份一起改。SM4-CCM 没有公开标准向量，`adapter/sm4/ccm_test.go` 用固定输出做回归，算法正确性由 `adapter/aes/ccm_test.go` 的 RFC 3610 向量背书。
 - `padding` / `format` 是公开包，改接口或新增实现会影响用户的既有 import 路径（从 `pkg/padding` 迁移到 `padding` 已写入 `README.md`）。
+- CGO 后端目前只覆盖 SM4。SM2 / SM3 仍为纯 Go：`GmSSL-Go` 的密钥接口只接受文件路径 PEM，覆盖不了本库的多编码密钥与解析缓存；要接入需要自写 cgo shim 直接操作 `sm2_key_t`。
+- `github.com/ZZMarquis/gmgo` 这个模块不存在（Go proxy 404），`github.com/ZZMarquis/gm` 是纯 Go 实现；因此 CGO 路线直接对接 GmSSL C 库，不引入第三方 Go 包装依赖。
 
 ## 8. 修改清单（提交前）
 
