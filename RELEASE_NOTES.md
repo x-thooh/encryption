@@ -1,7 +1,6 @@
-# Release Notes — v0.2.0（草案）
+# Release Notes — v0.2.0
 
-> 状态：待发布。基线 `main` 的发布检查见 [TEST_REPORT.md](TEST_REPORT.md)。
-> 版本建议 `v0.2.0`：新增 CGO 后端且含破坏性 import 路径变更。
+> 状态：已于 2026-10-31 发布（tag `v0.2.0`）。发布检查见 [TEST_REPORT.md](TEST_REPORT.md)，风险见 [RISK_REGISTER.md](RISK_REGISTER.md)。
 
 ## 亮点
 
