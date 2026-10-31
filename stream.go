@@ -369,7 +369,7 @@ func (f *framedAEAD) DecryptStream(r io.Reader, w io.Writer) error {
 		payload := plain[frameHeaderLen:]
 		switch kind := plain[frameHeaderLen-frameKindLen]; kind {
 		case frameKindData:
-			if werr := writeFull(w, payload); werr != nil {
+			if werr := writeAll(w, payload); werr != nil {
 				return werr
 			}
 		case frameKindTerminal:
@@ -403,10 +403,10 @@ func (f *framedAEAD) writeFrame(w io.Writer, id []byte, seq uint32, kind byte, d
 
 	var header [4]byte
 	binary.BigEndian.PutUint32(header[:], uint32(len(cipherText)))
-	if werr := writeFull(w, header[:]); werr != nil {
+	if werr := writeAll(w, header[:]); werr != nil {
 		return werr
 	}
-	return writeFull(w, []byte(cipherText))
+	return writeAll(w, []byte(cipherText))
 }
 
 // ensureStreamEOF 断言终止帧之后不再有任何字节。
@@ -424,18 +424,4 @@ func ensureStreamEOF(r io.Reader) error {
 	default:
 		return err
 	}
-}
-
-func writeFull(w io.Writer, b []byte) error {
-	for len(b) > 0 {
-		n, err := w.Write(b)
-		if err != nil {
-			return err
-		}
-		if n == 0 {
-			return io.ErrShortWrite
-		}
-		b = b[n:]
-	}
-	return nil
 }

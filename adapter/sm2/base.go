@@ -72,9 +72,11 @@ func WithUID(uid []byte) Option {
 	}
 }
 
+// WithKeyOptions 设置密钥解析选项。切片会被复制，不与调用方共享底层数组
+// （与 adapter/rsa 的写法保持一致，见 AGENTS §4.3）。
 func WithKeyOptions(keyOptions ...key.Option) Option {
 	return func(o *options) {
-		o.keyOptions = keyOptions
+		o.keyOptions = append(o.keyOptions, keyOptions...)
 	}
 }
 

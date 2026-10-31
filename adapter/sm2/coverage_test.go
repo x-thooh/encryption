@@ -32,10 +32,11 @@ func TestSignMarshalFailure(t *testing.T) {
 	}
 }
 
-// TestEncryptEmptyPlaintext 空明文在纯 Go 后端也必须报错（与 GmSSL 后端一致）。
+// TestEncryptEmptyPlaintext 空明文必须报错，且错误指向明文而不是密文长度。
+// 守卫在共享层（sm2.Encrypt），两种后端走同一条路径。
 func TestEncryptEmptyPlaintext(t *testing.T) {
-	if Backend() != "purego" {
-		t.Skip("纯 Go 后端的空明文分支")
+	if Backend() == "gmssl-disabled" {
+		t.Skip("CGO 后端未启用")
 	}
 	s := fixtureAdapter(t)
 	out, err := s.Encrypt(nil)

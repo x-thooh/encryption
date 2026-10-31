@@ -68,6 +68,12 @@ func (s *sm2) Encrypt(origData []byte) (string, error) {
 		return "", err
 	}
 
+	// 空明文统一拒绝：两个后端都产不出可解密的密文（C2 为空会被 Decrypt 拒绝），
+	// 在这里显式失败，错误信息才指向真正的起因，而不是“密文太短”。
+	if len(origData) == 0 {
+		return "", fmt.Errorf("%w: empty plaintext", standard.ErrEncrypt)
+	}
+
 	// 后端统一返回规范形态（未压缩 C1 || C3 || C2），再按选项重排编码。
 	canonical, err := encryptCanonical(publicKey, origData)
 	if err != nil {

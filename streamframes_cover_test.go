@@ -105,7 +105,7 @@ func TestDecryptStreamWriteError(t *testing.T) {
 	if err := f.DecryptStream(bytes.NewReader(data), &failWriter{after: 0}); err == nil {
 		t.Fatal("expected write error")
 	}
-	// writeFull 返回 0 字节写入 → io.ErrShortWrite
+	// writeAll 返回 0 字节写入 → io.ErrShortWrite
 	if err := f.DecryptStream(bytes.NewReader(data), shortWriter{}); !errors.Is(err, io.ErrShortWrite) {
 		t.Fatalf("got %v, want io.ErrShortWrite", err)
 	}
@@ -193,7 +193,7 @@ func TestStreamAEADConfigErrors(t *testing.T) {
 	}
 }
 
-// partialErrWriter 先写 n 字节再返回错误，用于覆盖 writeFull 的「部分写入 + error」。
+// partialErrWriter 先写 n 字节再返回错误，用于覆盖 writeAll 的「部分写入 + error」。
 type partialErrWriter struct{ n int }
 
 func (w *partialErrWriter) Write(p []byte) (int, error) {
@@ -208,8 +208,8 @@ func (w *partialErrWriter) Write(p []byte) (int, error) {
 	return n, errors.New("partial write failed")
 }
 
-func TestWriteFullPartialError(t *testing.T) {
-	if err := writeFull(&partialErrWriter{n: 2}, []byte("data")); err == nil {
+func TestWriteAllPartialError(t *testing.T) {
+	if err := writeAll(&partialErrWriter{n: 2}, []byte("data")); err == nil {
 		t.Fatal("expected partial write error")
 	}
 }
