@@ -26,6 +26,10 @@
 // 返回包装了 standard 包哨兵的 error，可用 errors.Is 判断；不支持的算法/模式
 // 组合属于编程错误，会 panic。
 //
+// SM 后端：SM4 / SM2 的原语在编译期二选一（默认纯 Go；CGO_ENABLED=1 -tags gmssl
+// 时走 GmSSL C 库），同一进程内不会并存。运行时用 SMBackends() 查看，
+// 用 SMBackendInfo.Check 做启动自检。
+//
 // 并发：构造完成后的实例可安全并发使用；密钥/IV/UID 在构造时已被复制。
 //
 // 完整参考见仓库中的 USAGE.md；性能基线见 PERFORMANCE.md。

@@ -326,7 +326,47 @@ case errors.Is(err, standard.ErrInvalidCiphertext):
 
 底层原因仍保留在错误链中。**面向不可信输入时不要直接把 `err.Error()` 返回给客户端**，避免泄露填充/密钥信息（padding oracle）。
 
-## 12. 常见配方
+## 12. SM 后端自检（运行时）
+
+SM4 / SM2 的原语有两套：默认纯 Go（`emmansun/gmsm`），`CGO_ENABLED=1 -tags gmssl` 时为 GmSSL C 库。
+**编译期二选一，同一进程内不会并存**，所以"我现在跑的是哪套"必须在运行时确认。
+
+```go
+info := encryption.SMBackends()
+
+log.Printf("sm backend: %s", info)          // sm4=gmssl sm2=gmssl
+log.Printf("ready: %v", info.Ready())
+
+// 启动自检：与部署预期不一致立即失败，避免"以为在跑 CGO，其实回退了"
+if err := info.Check(encryption.SMBackendGMSSL); err != nil {
+    log.Fatalf("SM 后端不符: %v", err)
+}
+```
+
+| 取值 / 方法 | 含义 |
+| --- | --- |
+| `info.SM4` / `info.SM2` | `purego` / `gmssl` / `gmssl-disabled` |
+| `info.String()` | `sm4=<a> sm2=<b>`，可直接写日志/健康检查标签 |
+| `info.Ready()` | 两套后端都可用；只有 `-tags gmssl` + `CGO_ENABLED=0` 时为 `false` |
+| `info.Check(want)` | 断言与部署预期一致；未就绪、不匹配、`want` 非法都返回 error |
+
+常量：`encryption.SMBackendPureGo`、`encryption.SMBackendGMSSL`、`encryption.SMBackendGMSSLDisabled`。
+单算法自查等价写法：`sm4.Backend()` / `sm2.Backend()`（见 `adapter/sm4`、`adapter/sm2`）。
+
+命令行判别（部署排查用）：
+
+```bash
+go version -m ./bin | grep -- '-tags'   # 出现 build -tags=gmssl 即 CGO 分支
+ldd ./bin | grep gmssl                  # 出现 libgmssl.so.3 即链接了 C 库
+go list -tags gmssl -f '{{.CgoFiles}}' ./adapter/sm4   # [backend_gmssl.go]
+```
+
+`CGO_ENABLED=1` **不能**作为判据（macOS 默认即为 1，纯 Go 构建也会记录该设置）。
+
+注意：`-tags gmssl` 下 SM2 单次加密明文上限 255 字节（GmSSL 结构体限制），纯 Go 后端没有该限制；
+两套后端混跑同一份协议时需保证 SM2 单条明文 ≤255 字节。
+
+## 13. 常见配方
 
 `A` 单条消息、随机 nonce（最安全）
 
@@ -371,7 +411,7 @@ encryption.WithPadding(standard.PaddingTypePSS)   // salt = 摘要长度
 encryption.WithFormatType(standard.FormatTypeOriginal)  // 省掉 Base64（省约 88% 编码开销）
 ```
 
-## 13. 常见陷阱
+## 14. 常见陷阱
 
 | 现象 | 原因 | 正确做法 |
 | --- | --- | --- |

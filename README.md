@@ -354,20 +354,31 @@ case errors.Is(err, standard.ErrStreamReused):
 | `CGO_ENABLED=1 go build -tags gmssl ./...` | GmSSL `libgmssl` | 必须开启 | `libgmssl.so` + glibc |
 
 ```go
-import (
-    "github.com/x-thooh/encryption/adapter/sm2"
-    "github.com/x-thooh/encryption/adapter/sm4"
-)
+import "github.com/x-thooh/encryption"
 
-// 确认链接进来的是哪套原语："purego" 或 "gmssl"
-sm4Backend := sm4.Backend()
-sm2Backend := sm2.Backend()
+// 一次拿到两套后端，例如 "sm4=gmssl sm2=gmssl"
+info := encryption.SMBackends()
+
+// 启动自检：与部署预期不一致就 fail fast
+if err := info.Check(encryption.SMBackendGMSSL); err != nil {
+    log.Fatalf("SM 后端不符: %v", err)
+}
 ```
+
+| 取值 / 方法 | 含义 |
+| --- | --- |
+| `info.SM4` / `info.SM2` | `purego` / `gmssl` / `gmssl-disabled` |
+| `info.String()` | `sm4=gmssl sm2=gmssl`（直接进日志） |
+| `info.Ready()` | 两套后端都可用；仅 `-tags gmssl` + `CGO_ENABLED=0` 时为 false |
+| `info.Check(want)` | 断言与部署预期一致（`SMBackendPureGo` / `SMBackendGMSSL`） |
+
+单个 adapter 也可以自查：`sm4.Backend()` / `sm2.Backend()`。
 
 - **SM4**：两种后端共享同一套模式实现（CBC / ECB / CFB8 / CFB64 / CFB128 / OFB / CTR / GCM / CCM），只有分组原语不同；GB/T 32907-2016 向量在两种后端下都必须通过。
 - **SM2**：只有曲线运算（签名、验签、加密、解密）切到 GmSSL；ZA + SM3 摘要、ASN.1 编解码与密钥解析（PEM/DER/Base64/Hex/Binary + 缓存）始终由本库完成，因此密文与签名在两种后端之间可互解、可互验（测试里钉了双向固定向量）。
 - GmSSL 的 `SM2_CIPHERTEXT` 用 `uint8` 记录长度，**单次 SM2 加密明文上限 255 字节**；超过时 `-tags gmssl` 构建会返回错误（纯 Go 后端没有该限制）。
 - `-tags gmssl` 但 `CGO_ENABLED=0` 时不会静默回退：第一次构造 SM4 / SM2 会返回错误，避免生产流量悄悄换原语。
+- **怎么确认线上跑的是哪套**：`encryption.SMBackends()` 是运行时唯一权威；辅助证据是构建元数据 `go version -m ./bin | grep -- '-tags'`（出现 `-tags=gmssl`）与动态库 `ldd ./bin | grep gmssl`。注意 `CGO_ENABLED=1` 不能作判据（macOS 默认即为 1）。详见 [USAGE.md](USAGE.md) 的「SM 后端自检」。
 - 构建镜像、运行期依赖、交叉编译限制与验证清单见 [deploy/gmssl/README.md](deploy/gmssl/README.md)。
 
 ## 开发

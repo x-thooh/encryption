@@ -54,13 +54,14 @@ docker build -f deploy/gmssl/Dockerfile --target test .   # 无本地 GmSSL 时�
 
 ## 3. 目录结构
 
-```
+```text
 encryption.go              门面：Encrypt / EncryptSign / Sign / Generate / Padding
 options.go                 门面层函数式选项
 stream.go                  流式 API 与分帧 AEAD
 streamcrypt.go             流式连续分组模式（CBC / ECB）实现
 streamecb.go               ECB 的 cipher.BlockMode 适配与 writeAll
 layout_test.go             adapter 独立性 / aes↔sm4 等价性断言
+smbackend.go               SM4/SM2 后端运行时自检（SMBackends / SMBackendInfo.Check）
 standard/                  接口、常量与错误哨兵（不要在此引入实现依赖）
 padding/                   填充实现（standard.IPadding 的公开实现）
 format/                    编码实现（Base64 / Base64URL / RawURL / Hex / Original）
@@ -76,7 +77,7 @@ deploy/gmssl/              CGO（GmSSL）后端的构建/验证镜像与部署�
 
 `adapter/aes` 与 `adapter/sm4` 的文件一一对应（`blockcipher.go`、`blocks.go`、`cfbsegment.go`、`aeadcipher.go`、`aeaddecrypt.go`、`nonce.go`、`ccm*.go` 等），每个包内自带完整实现：
 
-```
+```text
 adapter/aes/
   base.go        选项（WithPadding / WithFormat / WithCFBSegmentSize / WithAAD / WithCCMTagSize）
   blockcipher.go CBC/ECB/CFB/OFB/CTR 的公共结构与 Encrypt/Decrypt 分发
@@ -143,6 +144,7 @@ adapter/aes/
 - `newBlock` 与 `Backend()` 必须在三个文件里都提供，否则某个标签组合会编译失败。
 - `adapter/aes/block.go` 提供同名的 `newBlock`（标准库 `crypto/aes`），使 aes 与 sm4 的引擎文件保持逐文件对等；`backend_*.go` 是 `TestAESAndSM4Mirror` 唯一允许不对称的文件集合。
 - 两种后端必须共享同一套模式实现（CBC/ECB/CFB/OFB/CTR/GCM/CCM），差异只允许出现在分组原语处；GB/T 32907 向量必须在两种后端下都通过。
+- 运行时自检的唯一权威是根包 `SMBackends()` / `SMBackendInfo.Check`；它直接读两个 adapter 的 `Backend()`，改动 seam 时必须同步 `smbackend_test.go`（常量、匹配、未就绪、期望值非法四种结论）。
 - SM2 用同一套三段式 seam：`signDigest` / `verifyDigest` / `encryptPoint` / `decryptPoint`（`adapter/sm2/backend_*.go`），`sm2.Backend()` 返回后端名。
   - 后端之间只交换**规范形态**：未压缩 `C1(0x04||X||Y) || C3 || C2`；点压缩/混合模式与 C1C2C3 拼接顺序由共享的 `ciphertext.go` 转换，两套后端不得各自实现一遍。
   - ZA + SM3（`gsm2.CalculateSM2Hash`）、ASN.1 签名编解码与密钥解析不随后端切换——这是跨后端互操作的前提。
