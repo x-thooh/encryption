@@ -56,7 +56,7 @@ if errors.Is(err, standard.ErrInvalidCiphertext) { /* 输入非法 */ }
 
 ## 附：v0.2.0（2026-10-31，历史）
 
-## 亮点
+### 亮点
 
 1. **拆掉共享实现层**：`adapter/aes` 与 `adapter/sm4` 各自持有 CBC/ECB/CFB/OFB/CTR/GCM/CCM 的完整实现，
    之间不再有 `pkg/blockmode|aead|ccm|cfb` 这种共享引擎。等价性由根包 `TestAESAndSM4Mirror` 逐文件比对强制。
@@ -67,7 +67,7 @@ if errors.Is(err, standard.ErrInvalidCiphertext) { /* 输入非法 */ }
 4. **流式实现收敛到根包**：`pkg/stream` 内联为 `streamcrypt.go` / `streamecb.go`，
    分帧 AEAD（`streamID`+`seq`+终止帧）与固定 IV 一次性保护保持不变。
 
-## 新增 API
+### 新增 API
 
 | API | 说明 |
 | --- | --- |
@@ -85,7 +85,7 @@ if err := info.Check(encryption.SMBackendGMSSL); err != nil {
 }
 ```
 
-## 不兼容变更
+### 不兼容变更
 
 | 变更 | 影响与迁移 |
 | --- | --- |
@@ -95,7 +95,7 @@ if err := info.Check(encryption.SMBackendGMSSL); err != nil {
 | 空 C2 密文统一拒绝 | 两个后端一致返回 `ErrInvalidCiphertext`（此前纯 Go 可能静默返回空串） |
 | `SMBackends` 之外的签名/行为 | 与 v0.1.x 兼容；密文与签名格式未变 |
 
-## 质量与验证
+### 质量与验证
 
 | 项 | 结果 |
 | --- | --- |
@@ -106,7 +106,7 @@ if err := info.Check(encryption.SMBackendGMSSL); err != nil {
 | 静态检查 | `gofmt` 无输出、`go vet` 通过、`golangci-lint` **0 issues** |
 | 模糊测试 | 6 个 target（padding / CBC / GCM / CFB8 / SM2 密文解析 / 流式解密）各 5s 通过 |
 
-## 升级步骤
+### 升级步骤
 
 ```bash
 # 1) 纯 Go（默认）
@@ -124,7 +124,7 @@ CGO_ENABLED=1 go build -tags gmssl ./...
 #   encryption.SMBackends().Check(encryption.SMBackendPureGo | SMBackendGMSSL)
 ```
 
-## 已知限制
+### 已知限制
 
 - CGO 后端只覆盖 SM4 与 SM2 的**原语**；SM3 / ZA、签名 DER 编解码、密钥解析仍在 Go 侧（这是跨后端互操作的前提）。
 - CGO 后端未做性能基准，不承诺比纯 Go 快（跨 cgo 每次分组都有调用开销）。
