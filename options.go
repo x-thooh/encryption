@@ -2,6 +2,7 @@ package encryption
 
 import (
 	"github.com/x-thooh/encryption/adapter/aes"
+	chacha "github.com/x-thooh/encryption/adapter/chacha20poly1305"
 	"github.com/x-thooh/encryption/adapter/rsa"
 	grsa "github.com/x-thooh/encryption/adapter/rsa/key"
 	"github.com/x-thooh/encryption/adapter/sm2"
@@ -23,10 +24,13 @@ type options struct {
 	key []byte
 	iv  []byte
 
-	rsaOptions []rsa.Option
-	aesOptions []aes.Option
-	sm2Options []sm2.Option
-	sm4Options []sm4.Option
+	paddingSet bool
+
+	rsaOptions    []rsa.Option
+	aesOptions    []aes.Option
+	sm2Options    []sm2.Option
+	sm4Options    []sm4.Option
+	chachaOptions []chacha.Option
 
 	gRsaOptions []grsa.Option
 	gSM2Options []gsm2.Option
@@ -49,6 +53,7 @@ func WithModel(m standard.Model) Option {
 func WithPadding(p standard.PaddingType) Option {
 	return func(o *options) {
 		o.p = p
+		o.paddingSet = true
 	}
 }
 
@@ -103,6 +108,13 @@ func WithSM2Options(opts ...sm2.Option) Option {
 func WithSM4Options(opts ...sm4.Option) Option {
 	return func(o *options) {
 		o.sm4Options = opts
+	}
+}
+
+// WithChaCha20Poly1305Options 设置 ChaCha20-Poly1305 的选项（格式、AAD 等）。
+func WithChaCha20Poly1305Options(opts ...chacha.Option) Option {
+	return func(o *options) {
+		o.chachaOptions = opts
 	}
 }
 
