@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"testing"
 
-	"github.com/x-thooh/encryption/pkg/padding"
+	"github.com/x-thooh/encryption/padding"
 )
 
 func Test_ecb_Encrypt_None(t *testing.T) {
