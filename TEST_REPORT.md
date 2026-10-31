@@ -6,6 +6,29 @@
 - 环境：macOS 14 (arm64)，Go 1.23.4；CGO 分支在 Docker 内验证（`debian:bookworm-slim` + glibc，GmSSL v3.2.0）
 - 依赖：`emmansun/gmsm v0.34.1`（纯 Go）、`libgmssl`（CGO 可选后端）
 
+## 0. 本版复检（v0.3.0）
+
+v0.2.0 之后的一次整体评审（读全部非测试代码 + 独立交叉验证 + 定向探针），修了 6 类问题。
+本节只记录「复检发现了什么、现在怎么守」，常规门禁沿用第 1–8 节。
+
+| 发现 | 性质 | 现状 |
+| --- | --- | --- |
+| 分帧 AEAD 静默接受终止帧之后的数据 | 文档承诺与实现不符 | 已拒绝（`ErrInvalidCiphertext`）+ 2 个用例 |
+| 流式 CBC/ECB 的错误不带哨兵 | 与一次性路径口径不一致 | 统一哨兵 + `TestStreamBlockDecryptErrorContract` |
+| `Stream` 静默忽略 CFB 反馈位数 | 安全参数被静默改写 | 构造期报错 + `TestStreamCFBFeedback` |
+| CCM 每 16 字节一次堆分配 | 性能退化（无基准，故长期未发现） | 分配与长度解耦 + `TestCCMAllocationsConstant` + 新增 CCM 基准 |
+| RSA PKCS#1 v1.5 空明文产出空密文 | 无声截断路径 | 空明文也做一次 RSA 运算 + `TestPKCSEmptyPlaintext` |
+| SM2 混合模式不校验前缀奇偶位 | 与 gmsm 宽严不一致 | 严格校验 + `TestParseHybridPrefixMismatch` |
+
+外部交叉验证（本轮新增，不入仓库）：
+
+- **AES / SM4 对称原语**：AES-CFB128/CFB8/OFB/CTR/CBC(含 PKCS#7)/ECB 与 SM4-CBC/ECB/CFB128/OFB/CTR
+  的输出与 LibreSSL 3.3.6 逐字节一致；CFB8/CFB64/CFB128 另与我自写的 NIST SP 800-38A 参考实现一致。
+- **门面垃圾输入**：3 类型 × 7 模式 × 5 编码 × 2 IV 模式 × 60 样本 → 0 panic；
+  SM2 / RSA 各 2000 / 500 次随机密文与签名 → 0 panic。
+- **不变量**：key/IV/AAD 构造后复制、算法层选项覆盖门面默认、调用方 option 切片不被污染、
+  流式 CBC 输出与一次性 CBC 逐字节相同。
+
 ## 1. 结论摘要
 
 | 门禁项 | 命令 | 结果 |

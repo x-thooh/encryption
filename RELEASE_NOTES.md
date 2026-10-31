@@ -1,10 +1,12 @@
-# Release Notes — v0.2.0
+# Release Notes — v0.3.0
 
-> 状态：已于 2026-10-31 发布（tag `v0.2.0`）。发布检查见 [TEST_REPORT.md](TEST_REPORT.md)，风险见 [RISK_REGISTER.md](RISK_REGISTER.md)。
+> 状态：**v0.3.0 发布**（tag `v0.3.0`，2026-10-31）。本版是「流式/非对称的错误契约与输入校验」修订，不含新的算法或 API 入口。
+> 发布检查见 [TEST_REPORT.md](TEST_REPORT.md)，风险见 [RISK_REGISTER.md](RISK_REGISTER.md)。
+> v0.2.0 的内容保留在文末「附：v0.2.0（历史）」，便于对比升级路径。
 
-## 未发布（main）
+## v0.3.0 变更（相对 v0.2.0）
 
-### 行为与错误契约收敛
+### 1. 行为与错误契约
 
 | 变更 | 影响与迁移 |
 | --- | --- |
@@ -14,6 +16,45 @@
 | RSA PKCS#1 v1.5 空明文现在也走一次 RSA 运算 | 此前 `Encrypt(nil)` 返回空字符串 `""`，而 `""` 又能被 `Decrypt` 静默解成空明文——等于给了一条「把整段密文换成空串」的无声截断路径。现在空明文产出与密钥等长的密文；旧版本产生的 `""` 仍能解成空明文（解码侧保持兼容） |
 | SM2 混合模式校验前缀奇偶位 | `0x06/0x07` 前缀必须与 `y` 的最低位一致（GM/T 0003.2），不一致返回 `ErrInvalidCiphertext`。此前会被归一成未压缩点后继续解密，与 gmsm 行为不一致 |
 | 流式 CFB 拒绝非 128 反馈位数 | 此前 `WithCFBSegmentSize(8/64)` 在 `Stream` 中被静默忽略、实际跑 CFB128；现在 `Stream` 构造时返回 error。CFB8/CFB64 请用一次性 `Encrypt` |
+
+### 2. 性能
+
+| 项 | 变化 |
+| --- | --- |
+| AES-CCM / SM4-CCM 加密分配 | 64 KiB 明文 **4 105 → 10 次分配**，耗时 169 449 → 120 873 ns（适配器层，Format=Original） |
+| CCM 基准 | `benchSymSchemes` 新增 AES-CCM / SM4-CCM（此前完全没有基准，退化无法被发现），子基准 48 → 56 |
+| 回归约束 | `TestCCMAllocationsConstant`：分配次数不得随消息长度增长 |
+
+CCM 仍比 GCM 慢约 3.5×（CTR + CBC-MAC 两趟分组密码 vs GCM 的 CLMUL 单趟），这是算法固有差距，不承诺追平。
+
+### 3. 测试与门禁
+
+| 项 | 结果 |
+| --- | --- |
+| 并发回归 | 新增 `TestConcurrentSymmetric` / `TestConcurrentAsymmetric` / `TestConcurrentStream`，把「构造完成后可并发使用」变成可执行断言 |
+| 模糊测试 | 6 个 target（新增 `FuzzStreamDecryptNoPanic` 覆盖 7 种模型的流式解密） |
+| 覆盖率 | 合计 **99.8%**，未覆盖仍是 `coverage-exceptions.txt` 里的 3 条不可达防御分支 |
+| 双后端 | 纯 Go 与容器内 `-tags gmssl` 的 `go test -race ./...` 均通过 |
+
+### 4. 升级步骤
+
+```bash
+go get github.com/x-thooh/encryption@v0.3.0
+```
+
+升级后请检查（都是「更严格」方向的变化）：
+
+```go
+// 1) 流式：同一 reader 里不要再堆多条流 / 尾部数据
+s.DecryptStream(oneStreamOnly, w)
+
+// 2) 错误分类改用 errors.Is（不要比对文本）
+if errors.Is(err, standard.ErrInvalidCiphertext) { /* 输入非法 */ }
+
+// 3) 流式 CFB 若要 8/64 位反馈，改用一次性 Encrypt
+```
+
+## 附：v0.2.0（2026-10-31，历史）
 
 ## 亮点
 

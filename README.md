@@ -15,7 +15,8 @@ Go 加解密与签名库，统一封装 **AES / RSA / SM2 / SM4**，提供：
 ## 安装
 
 ```bash
-go get github.com/x-thooh/encryption
+go get github.com/x-thooh/encryption          # 最新版
+go get github.com/x-thooh/encryption@v0.3.0   # 当前发布版
 ```
 
 要求 Go 1.23.4+。

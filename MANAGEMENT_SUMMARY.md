@@ -1,4 +1,4 @@
-# 一页管理层摘要：加密门面库 v0.2.0
+# 一页管理层摘要：加密门面库 v0.3.0
 
 ## 一句话
 
@@ -38,5 +38,5 @@
 
 ## 建议
 
-**可以发版**（建议 `v0.2.0`）。发版动作：打 tag、贴 [RELEASE_NOTES.md](RELEASE_NOTES.md)、把覆盖率数字与门禁结果对齐。
+**可以发版**（本版 `v0.3.0`）。发版动作：打 tag、贴 [RELEASE_NOTES.md](RELEASE_NOTES.md)、把覆盖率数字与门禁结果对齐。
 发布后跟进三件事：CGO 基准、OpenSSL 互通、覆盖率补齐。详细结论见 [TEST_REPORT.md](TEST_REPORT.md)，风险明细见 [RISK_REGISTER.md](RISK_REGISTER.md)。
